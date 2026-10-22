@@ -2,6 +2,9 @@
 
 [![Tests](https://img.shields.io/github/check-runs/gagarinbefree/IPGuard/main?nameFilter=Test%20Windows%20x64&label=tests)](https://github.com/gagarinbefree/IPGuard/actions/workflows/windows.yml)
 [![Build and deploy](https://img.shields.io/github/check-runs/gagarinbefree/IPGuard/main?nameFilter=Build%20and%20deploy%20Windows%20x64&label=build%20and%20deploy)](https://github.com/gagarinbefree/IPGuard/actions/workflows/windows.yml)
+[![Latest release](https://img.shields.io/github/v/release/gagarinbefree/IPGuard?label=version)](https://github.com/gagarinbefree/IPGuard/releases/latest)
+
+[Download the latest Windows x64 EXE](https://github.com/gagarinbefree/IPGuard/releases/latest/download/IPGuard-win-x64.exe)
 
 IPGuard is a Windows desktop application with a status window and a system tray icon. Its goal is to control PowerShell network access based on the country associated with the computer's public IP address.
 
@@ -9,7 +12,7 @@ IPGuard is a Windows desktop application with a status window and a system tray 
 
 ## Requirements and startup
 
-The current build requires Windows x64 and .NET SDK 10. Support for specific Windows 10/11 editions and network enforcement will be verified separately using the [VM test matrix](docs/vm-validation.md). The application does not require administrator privileges, create a Windows Service, or register automatic startup.
+Building from source requires Windows x64 and the **.NET SDK 10.0.401** pinned in `global.json`. Release executables include the .NET runtime. Support for specific Windows 10/11 editions and network enforcement will be verified separately using the [VM test matrix](docs/vm-validation.md). The application does not require administrator privileges, create a Windows Service, or register automatic startup.
 
 Run these commands from the repository root:
 
@@ -20,7 +23,7 @@ dotnet test IPGuard.slnx --configuration Release --no-build --no-restore
 dotnet run --project src/Desktop/Desktop.csproj --configuration Release --no-build --no-restore
 ```
 
-Dependency versions are pinned in `Directory.Packages.props` and `packages.lock.json`. The SDK selection in `global.json` permits installed stable .NET 10 feature bands. To add or update a package, change its central version, restore without `--locked-mode`, and review the updated lock files.
+Dependency versions are pinned in `Directory.Packages.props` and `packages.lock.json`. The SDK, single-file analyzer, and release runtime are pinned for reproducible restore and publication. To add or update a package or SDK, update the corresponding version, restore without `--locked-mode`, and review the updated lock files. Keep the Windows publish profile's runtime version up to date when shipping self-contained builds.
 
 Use the window buttons to hide the application in the tray or exit it explicitly. Closing or minimizing the window hides it while keeping the process running. Clicking the tray icon or choosing the menu action to open IPGuard restores the window. Explicit exit terminates the process and removes the icon. The current interface is in Russian.
 
@@ -31,20 +34,23 @@ There is no installer yet; run the build output directly. To remove the applicat
 The [Windows CI workflow](.github/workflows/windows.yml) has two sequential jobs, each with its own check status badge above. Both target **Windows x64 only**, using the `windows-2025` runner and the .NET 10 SDK selected by `global.json`.
 
 1. **Test Windows x64** runs on branch pushes, pull requests, and manual requests. It restores pinned packages in locked mode, compiles the test projects and their dependencies, and runs the safe unit and headless integration tests in Release. TRX reports are saved as `windows-test-results`, including when tests fail.
-2. **Build and deploy Windows x64** depends on successful tests through `needs: tests` and runs for pushes or manual runs on `main`. It checks out the same commit, builds the solution with a new version, publishes the desktop application, packages it with a SHA-256 checksum, and creates a [GitHub prerelease](https://github.com/gagarinbefree/IPGuard/releases). Failed or cancelled tests prevent deployment. Pull requests and other branches do not publish releases.
+2. **Build and deploy Windows x64** depends on successful tests through `needs: tests` and runs for pushes or manual runs on `main`. It checks out the same commit, builds a self-contained executable with a new version, verifies its file layout and version metadata, and creates a [GitHub Release](https://github.com/gagarinbefree/IPGuard/releases/latest) with the EXE, SHA-256 checksum, and generated release notes. Failed or cancelled tests prevent deployment. Pull requests and other branches do not publish releases.
 
 Workflow concurrency is shared by both jobs: a new run for the same Git ref cancels the previous run, including running tests or a running build/deployment job. Branches and pull requests have separate concurrency groups. To retry the pipeline manually, run **Windows CI** on `main`. The badges use Shields.io check runs filtered by the individual job names on `main`.
 
 CI does not enable tests that modify Firewall/WFP. A successful run does not prove network enforcement or validation on every supported Windows version.
 
-Each deployment uses version `0.1.<run-number>-preview.<attempt>`, for example `0.1.42-preview.1`. The workflow's run number increases for new runs, and the attempt increases when a run is retried, so every deployment gets a different version and release tag. The version is embedded in assembly/product metadata and used in the ZIP name, release title, and `v<version>` tag. The Windows file version is `0.1.<run-number>.<attempt>`. Local builds default to `0.1.0-preview.local`. Releases remain prereleases while network protection is unfinished.
+Each deployment uses the Windows version `0.1.<run-number>.<attempt>`, for example `0.1.42.1`. The workflow's run number increases for new runs, and the attempt increases when a run is retried, so every deployment gets a different version and release tag. This version is embedded in assembly/product and Windows file metadata and appears in the `IPGuard v<version>` release title and `v<version>` tag. Local builds default to `0.1.0-preview.local`.
 
-Download `IPGuard-<version>-windows-x64.zip` from the release, extract the entire archive, and run `Desktop.exe`; keep its DLLs and other files together. The adjacent `.sha256` file contains the archive checksum. The same ZIP and checksum are also saved as the `IPGuard-<version>-windows-x64` Actions artifact for 14 days, subject to repository policies. This is a framework-dependent build and requires the **.NET 10 runtime for Windows x64** on the target machine. It is not an installer or a self-contained executable.
+Download and run **[IPGuard-win-x64.exe](https://github.com/gagarinbefree/IPGuard/releases/latest/download/IPGuard-win-x64.exe)**. It is a single self-contained file with .NET 10.0.13 and native libraries included; a separate .NET installation is unnecessary. Native libraries are extracted to the .NET bundle cache on startup. `IPGuard-win-x64.exe.sha256` contains the checksum. Both files are also saved as the `IPGuard-<version>-windows-x64` Actions artifact for 14 days, subject to repository policies. This is a portable application shell; an installer and network enforcement are still under development.
 
-To publish the same layout locally after building and testing:
+The version badge and download link follow the latest release automatically. README updates do not require a bot commit. The workflow follows the test, publish, and release pattern in [AvaWeather](https://github.com/gagarinbefree/AvaWeather/blob/ccf1396f694eb166935d2fd14250a1022e4a0350/.github/workflows/dotnet-tests.yml), with Windows x64 as its current target.
+
+To publish the same executable locally after testing:
 
 ```powershell
-dotnet publish src/Desktop/Desktop.csproj --configuration Release --runtime win-x64 --self-contained false --no-build --no-restore --output artifacts/publish/win-x64
+dotnet restore src/Desktop/Desktop.csproj --locked-mode -p:PublishProfile=Windows
+dotnet publish src/Desktop/Desktop.csproj --configuration Release --no-restore -p:PublishProfile=Windows --output artifacts/publish/win-x64
 ```
 
 ## Architecture
