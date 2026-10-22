@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+.idea/
+.cache/
+.packages/
+.dotnet/
+artifacts/
+*.user
+*.suo
