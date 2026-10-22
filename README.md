@@ -1,5 +1,8 @@
 # IPGuard
 
+[![Tests](https://github.com/gagarinbefree/IPGuard/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/gagarinbefree/IPGuard/actions/workflows/tests.yml)
+[![Build and deploy](https://github.com/gagarinbefree/IPGuard/actions/workflows/windows.yml/badge.svg?branch=main)](https://github.com/gagarinbefree/IPGuard/actions/workflows/windows.yml)
+
 IPGuard is a Windows desktop application with a status window and a system tray icon. Its goal is to control PowerShell network access based on the country associated with the computer's public IP address.
 
 **Current stage: application shell. Network enforcement, public IP detection, and GeoIP lookup are not implemented yet. Running the application does not restrict PowerShell network access.** The interface explicitly reports that protection is unavailable and the network filter state is unknown.
@@ -25,11 +28,16 @@ There is no installer yet; run the build output directly. To remove the applicat
 
 ## Windows builds on GitHub
 
-The [Windows build workflow](.github/workflows/windows.yml) runs on pushes, pull requests, and manual requests in [GitHub Actions](https://github.com/gagarinbefree/IPGuard/actions/workflows/windows.yml). CI currently targets **Windows x64 only**, using the `windows-2025` runner and the .NET 10 SDK selected by `global.json`.
+GitHub Actions has two sequential stages, each with its own status badge above. Both target **Windows x64 only**, using the `windows-2025` runner and the .NET 10 SDK selected by `global.json`.
 
-Each run restores pinned packages in locked mode, builds the solution in Release, runs the safe unit and headless integration tests, and publishes the desktop application. It does not run tests that modify Firewall/WFP. A successful CI build is not evidence of working network enforcement or validation on every supported Windows version.
+1. [Tests](.github/workflows/tests.yml) runs on branch pushes, pull requests, and manual requests. It restores pinned packages in locked mode, compiles the test projects and their dependencies, and runs the safe unit and headless integration tests in Release. TRX reports are saved as `windows-test-results`, including when tests fail.
+2. [Build and deploy](.github/workflows/windows.yml) starts after successful Tests for a push or manual run on this repository's `main` branch. It checks out the exact tested commit, builds the solution with a new version, publishes the desktop application, packages it with a SHA-256 checksum, and creates a [GitHub prerelease](https://github.com/gagarinbefree/IPGuard/releases). Failed tests prevent deployment. Pull requests and other branches do not publish releases.
 
-After a successful run, open its summary and download the `IPGuard-windows-x64` artifact. Extract the entire archive and run `Desktop.exe`; keep its DLLs and other files together. This is a framework-dependent build and requires the **.NET 10 runtime for Windows x64** on the target machine. It is not an installer or a self-contained executable. TRX reports are available as the `windows-test-results` artifact, including when a test run fails. Artifacts are retained for 14 days, subject to repository policies.
+The two workflows provide separate test and build/deployment badges. To retry the entire pipeline manually, run **Tests** on `main`; a successful run triggers Build and deploy. CI does not enable tests that modify Firewall/WFP. A successful run does not prove network enforcement or validation on every supported Windows version.
+
+Each deployment uses version `0.1.<build-run-number>-preview.<attempt>`, for example `0.1.42-preview.1`. The build workflow's run number increases for new runs, and the attempt increases when a run is retried, so every deployment gets a different version and release tag. The version is embedded in assembly/product metadata and used in the ZIP name and `v<version>` tag. The Windows file version is `0.1.<build-run-number>.<attempt>`. Local builds default to `0.1.0-preview.local`. Releases remain prereleases while network protection is unfinished.
+
+Download `IPGuard-<version>-windows-x64.zip` from the release, extract the entire archive, and run `Desktop.exe`; keep its DLLs and other files together. The adjacent `.sha256` file contains the archive checksum. The same ZIP and checksum are also saved as the `IPGuard-<version>-windows-x64` Actions artifact for 14 days, subject to repository policies. This is a framework-dependent build and requires the **.NET 10 runtime for Windows x64** on the target machine. It is not an installer or a self-contained executable.
 
 To publish the same layout locally after building and testing:
 

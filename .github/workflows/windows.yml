@@ -1,26 +1,37 @@
-name: Windows build
+name: Build and deploy
 
 on:
-  push:
-  pull_request:
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Tests
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: windows-deploy
+  cancel-in-progress: false
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   DOTNET_NOLOGO: '1'
 
 jobs:
-  build:
-    name: Build and test Windows x64
+  build-and-deploy:
+    name: Build and deploy Windows x64
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: windows-2025
     timeout-minutes: 20
+    permissions:
+      contents: write
     defaults:
       run:
         shell: pwsh
@@ -29,6 +40,7 @@ jobs:
       - name: Get source
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: Set up .NET 10
@@ -39,28 +51,57 @@ jobs:
       - name: Restore packages
         run: dotnet restore IPGuard.slnx --locked-mode
 
-      - name: Build Release
-        run: dotnet build IPGuard.slnx --configuration Release --no-restore
+      - name: Set release version
+        id: version
+        run: |
+          $version = "0.1.$env:GITHUB_RUN_NUMBER-preview.$env:GITHUB_RUN_ATTEMPT"
+          "value=$version" >> $env:GITHUB_OUTPUT
+          "file=0.1.$env:GITHUB_RUN_NUMBER.$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_OUTPUT
 
-      - name: Run safe tests
-        run: dotnet test IPGuard.slnx --configuration Release --no-build --no-restore --logger trx --results-directory artifacts/test-results
+      - name: Build Release
+        env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+          FILE_VERSION: ${{ steps.version.outputs.file }}
+        run: dotnet build IPGuard.slnx --configuration Release --no-restore -p:Version=$env:APP_VERSION -p:FileVersion=$env:FILE_VERSION
 
       - name: Publish Windows app
-        run: dotnet publish src/Desktop/Desktop.csproj --configuration Release --runtime win-x64 --self-contained false --no-build --no-restore --output artifacts/publish/win-x64
+        env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+          FILE_VERSION: ${{ steps.version.outputs.file }}
+        run: dotnet publish src/Desktop/Desktop.csproj --configuration Release --runtime win-x64 --self-contained false --no-build --no-restore -p:Version=$env:APP_VERSION -p:FileVersion=$env:FILE_VERSION --output artifacts/publish/win-x64
+
+      - name: Package Windows app
+        env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $archive = "artifacts/IPGuard-$env:APP_VERSION-windows-x64.zip"
+          Compress-Archive -Path artifacts/publish/win-x64/* -DestinationPath $archive
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $archive)" | Set-Content -LiteralPath "$archive.sha256" -Encoding utf8NoBOM
 
       - name: Save Windows app
         uses: actions/upload-artifact@v7
         with:
-          name: IPGuard-windows-x64
-          path: artifacts/publish/win-x64/
+          name: IPGuard-${{ steps.version.outputs.value }}-windows-x64
+          path: |
+            artifacts/IPGuard-*.zip
+            artifacts/IPGuard-*.zip.sha256
           if-no-files-found: error
           retention-days: 14
 
-      - name: Save test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-test-results
-          path: artifacts/test-results/*.trx
-          if-no-files-found: warn
-          retention-days: 14
+      - name: Deploy GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          APP_VERSION: ${{ steps.version.outputs.value }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          @"
+          Windows x64 application shell. Network protection is not implemented yet.
+
+          Requires the .NET 10 runtime for Windows x64. Extract the ZIP and run Desktop.exe.
+          Source commit: $env:SOURCE_SHA
+          Safe test results: ${{ github.event.workflow_run.html_url }}
+          "@ | Set-Content -LiteralPath artifacts/release-notes.md -Encoding utf8NoBOM
+          gh release create "v$env:APP_VERSION" "artifacts/IPGuard-$env:APP_VERSION-windows-x64.zip" "artifacts/IPGuard-$env:APP_VERSION-windows-x64.zip.sha256" --target $env:SOURCE_SHA --title "IPGuard $env:APP_VERSION" --notes-file artifacts/release-notes.md --prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

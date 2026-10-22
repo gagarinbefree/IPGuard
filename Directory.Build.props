@@ -8,6 +8,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <AnalysisLevel>10.0</AnalysisLevel>
     <Deterministic>true</Deterministic>
+    <Version>0.1.0-preview.local</Version>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 </Project>
