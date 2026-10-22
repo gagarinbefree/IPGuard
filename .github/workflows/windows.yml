@@ -1,46 +1,70 @@
-name: Build and deploy
+name: Windows CI
 
 on:
-  workflow_run:
-    workflows:
-      - Tests
-    types:
-      - completed
+  push:
     branches:
-      - main
+      - '**'
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-deploy
-  cancel-in-progress: false
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   DOTNET_NOLOGO: '1'
 
+defaults:
+  run:
+    shell: pwsh
+
 jobs:
-  build-and-deploy:
-    name: Build and deploy Windows x64
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.head_branch == 'main'
+  tests:
+    name: Test Windows x64
     runs-on: windows-2025
     timeout-minutes: 20
-    permissions:
-      contents: write
-    defaults:
-      run:
-        shell: pwsh
-
     steps:
       - name: Get source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore packages
+        run: dotnet restore IPGuard.slnx --locked-mode
+
+      - name: Run safe tests
+        run: dotnet test IPGuard.slnx --configuration Release --no-restore --logger trx --results-directory artifacts/test-results
+
+      - name: Save test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-test-results
+          path: artifacts/test-results/*.trx
+          if-no-files-found: warn
+          retention-days: 14
+
+  build-and-deploy:
+    name: Build and deploy Windows x64
+    needs: tests
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Get source
+        uses: actions/checkout@v7
+        with:
           persist-credentials: false
 
       - name: Set up .NET 10
@@ -94,14 +118,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           APP_VERSION: ${{ steps.version.outputs.value }}
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           @"
           Windows x64 application shell. Network protection is not implemented yet.
 
           Requires the .NET 10 runtime for Windows x64. Extract the ZIP and run Desktop.exe.
           Source commit: $env:SOURCE_SHA
-          Safe test results: ${{ github.event.workflow_run.html_url }}
+          Tests and build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           "@ | Set-Content -LiteralPath artifacts/release-notes.md -Encoding utf8NoBOM
           gh release create "v$env:APP_VERSION" "artifacts/IPGuard-$env:APP_VERSION-windows-x64.zip" "artifacts/IPGuard-$env:APP_VERSION-windows-x64.zip.sha256" --target $env:SOURCE_SHA --title "IPGuard $env:APP_VERSION" --notes-file artifacts/release-notes.md --prerelease
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
