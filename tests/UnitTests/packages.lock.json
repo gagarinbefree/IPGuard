@@ -341,6 +341,9 @@
           "Microsoft.Extensions.DependencyInjection": "[10.0.12, )"
         }
       },
+      "windows": {
+        "type": "Project"
+      },
       "Avalonia.Desktop": {
         "type": "CentralTransitive",
         "requested": "[12.1.3, )",

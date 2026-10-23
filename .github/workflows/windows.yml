@@ -118,7 +118,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           @"
-          Windows x64 application shell. Network protection is not implemented yet.
+          Windows x64 application shell. Network protection is not enabled yet.
 
           Version: $env:APP_VERSION
           Download and run $env:APP_ASSET. The .NET runtime and native libraries are included.

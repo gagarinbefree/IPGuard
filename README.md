@@ -8,7 +8,7 @@
 
 IPGuard is a Windows desktop application with a status window and a system tray icon. Its goal is to control PowerShell network access based on the country associated with the computer's public IP address.
 
-**Current stage: application shell. Network enforcement, public IP detection, and GeoIP lookup are not implemented yet. Running the application does not restrict PowerShell network access.** The interface explicitly reports that protection is unavailable and the network filter state is unknown.
+**Current stage: application shell and an unconnected WFP block prototype. Running the application does not restrict PowerShell network access.** Public IP detection, GeoIP lookup, temporary permissions, and protection lifecycle handling are not implemented yet. The interface explicitly reports that protection is unavailable and the network filter state is unknown.
 
 ## Requirements and startup
 
@@ -60,12 +60,17 @@ The GUI uses Avalonia 12.1.3, Avalonia.Markup.Declarative 12.1.1, and CommunityT
 | Project | Responsibility |
 | --- | --- |
 | `src/Desktop` | Entry point, dependency composition, window, view model, lifetime adapter, and tray. |
-| `tests/UnitTests` | xUnit tests for view model commands through the desktop host interface. |
-| `tests/IntegrationTests` | Safe headless tests for real controls, bindings, lifetime behavior, and dependency composition. |
+| `src/Windows` | Prototype WFP baseline, native interop, application IDs, and object inspection. |
+| `tests/UnitTests` | Shell commands, atomic baseline operations with a fake session, ownership checks, and native filter layouts. |
+| `tests/IntegrationTests` | Safe headless UI tests and read-only Windows application ID resolution. |
 
 `DesktopBootstrapper` registers dependencies. `ShellViewModel` exposes commands through CommunityToolkit.Mvvm without accessing the OS directly. `IDesktopHost` defines show, hide, and shutdown operations; `AvaloniaDesktopHost` implements them using the window and desktop lifetime. `DesktopSession` removes the icon and releases dependencies when the application exits.
 
-The `Domain`, `Application`, `Infrastructure`, `Windows`, and `Cli` projects will be added when their code is needed. Empty projects and adapters for future operating systems are not created in advance. Network policy must remain shared between the GUI and CLI and independent of Avalonia.
+The `Domain`, `Application`, `Infrastructure`, and `Cli` projects will be added when their code is needed. Empty projects and adapters for future operating systems are not created in advance. Network policy must remain shared between the GUI and CLI and independent of Avalonia.
+
+The Windows prototype is intentionally separate from desktop dependency registration. `WfpBlockPolicy` creates one management session per operation. `Install` validates full PowerShell paths and resolves Windows App IDs before starting a write transaction. It creates persistent owned provider/sublayer objects and four application-scoped Block filters: ALE connect and receive/accept for IPv4 and IPv6. It verifies ownership and existing filter definitions, rejects conflicts without replacing objects, and aborts the transaction when an operation fails. Rollback failures preserve both errors.
+
+`Inspect` uses a read-only transaction and reports `Present`, `Incomplete`, or `Unknown`. These describe the stored objects. **`Present` does not mean traffic blocking has been verified**, and read or snapshot failures never produce a successful result. This prototype does not install boot-time filters, create Permit filters, or provide an uninstaller. Its mutating APIs have not been run on the development machine or validated in a VM. Use only a disposable isolated administrator VM for future write experiments; the normal desktop executable has no reference to this adapter.
 
 ## Contributing and creating forks
 
@@ -77,9 +82,11 @@ To add a shell action, implement the operation in the appropriate component, exp
 
 When changing views, use the API of the pinned Avalonia.Markup.Declarative version. The shell uses supported `Binding` instances with `nameof` and verifies them through pointer clicks in headless tests. Examples from the master branch may target a different API. See the [community library](https://github.com/AvaloniaCommunity/Avalonia.Markup.Declarative) and [Avalonia headless testing documentation](https://docs.avaloniaui.net/docs/testing/headless-xunit).
 
+For Windows filtering changes, keep native calls behind `IWfpSession` and test policy operations with a fake session. Extend the native serialization tests when changing fields or ownership metadata, and verify actual enforcement separately in the VM matrix. A fork that must coexist with IPGuard must choose its own provider/sublayer GUIDs and owner marker in `WfpPolicyIds`; these identifiers define policy ownership.
+
 ## Testing and limitations
 
-A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The current 3 unit tests and 9 integration tests cover the shell only. The headless platform does not verify native system tray clicks or the Explorer lifecycle.
+A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The current 53 unit tests and 10 integration tests cover the shell, WFP transaction behavior through a fake, native ownership/filter validation, x64 structure layouts, and real App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` and frees its output; it does not add policy objects. The headless platform does not verify native system tray clicks or the Explorer lifecycle.
 
 To save a window preview from the headless test, provide an absolute output path whose parent directory exists:
 
@@ -93,6 +100,6 @@ try {
 }
 ```
 
-Real network tests require an explicitly enabled mode in an isolated Windows VM. Neither these tests nor the network enforcement adapter exists at this stage. Even after implementation, blocking known PowerShell executable paths will not block child applications or unknown portable copies, and will not provide protection against a system administrator.
+Real network tests require an explicitly enabled mode in an isolated Windows VM. Mutating integration tests and the complete enforcement lifecycle are not implemented at this stage. Presence tests and a successful build do not prove filter arbitration, activation after boot, revocation on process failure, or termination of existing flows. Blocking known PowerShell executable paths will not block child applications or unknown portable copies, and will not provide protection against a system administrator.
 
 Research and remaining acceptance criteria: [technical decisions](docs/technical-research.md), [implementation plan](docs/implementation-plan.md), and [VM validation program](docs/vm-validation.md).
