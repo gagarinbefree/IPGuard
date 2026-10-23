@@ -11,8 +11,7 @@ internal static class WfpNativeFilter
     /// <summary>Copies a verified owned block, ignoring unrelated filters and rejecting unsafe related objects.</summary>
     internal static WfpBlockRule? GetBlockForUninstall(NativeFilter filter)
     {
-        bool ownedProvider = filter.ProviderKey != 0 && Marshal.PtrToStructure<Guid>(filter.ProviderKey) == WfpPolicyIds.Provider;
-        if (!ownedProvider && filter.SubLayerKey != WfpPolicyIds.SubLayer)
+        if (!IsRelated(filter))
         {
             return null;
         }
@@ -39,6 +38,10 @@ internal static class WfpNativeFilter
 
         return rule;
     }
+
+    /// <summary>Recognizes either own provider association or own sublayer without inferring complete ownership.</summary>
+    internal static bool IsRelated(NativeFilter filter) => filter.SubLayerKey == WfpPolicyIds.SubLayer ||
+        (filter.ProviderKey != 0 && Marshal.PtrToStructure<Guid>(filter.ProviderKey) == WfpPolicyIds.Provider);
 
     /// <summary>Allows only the disabled-state bit in addition to the exact persistent block schema.</summary>
     internal static bool MatchesForUninstall(NativeFilter filter, WfpBlockRule rule)

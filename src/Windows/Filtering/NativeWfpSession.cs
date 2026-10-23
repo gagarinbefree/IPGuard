@@ -25,7 +25,7 @@ internal sealed class NativeWfpSession : IWfpSession
         CheckProvider(forUninstall: true);
         CheckSubLayer();
         var rules = new List<WfpBlockRule>();
-        WfpFilterEnumerator.Visit(_engine, filter =>
+        VisitPolicyFilters(filter =>
         {
             var rule = WfpNativeFilter.GetBlockForUninstall(filter);
             if (rule is not null)
@@ -35,6 +35,15 @@ internal sealed class NativeWfpSession : IWfpSession
         });
         return rules;
     }
+
+    /// <summary>Visits related filters only while their page memory is valid; the caller supplies an explicit transaction.</summary>
+    internal void VisitPolicyFilters(Action<NativeFilter> visit) => WfpFilterEnumerator.Visit(_engine, filter =>
+    {
+        if (WfpNativeFilter.IsRelated(filter))
+        {
+            visit(filter);
+        }
+    });
 
     /// <inheritdoc />
     public void RemoveBlock(WfpBlockRule rule)
@@ -201,6 +210,9 @@ internal sealed class NativeWfpSession : IWfpSession
 
     /// <inheritdoc />
     public bool HasPolicyOwner() => CheckProvider() && CheckSubLayer();
+
+    /// <inheritdoc />
+    public bool HasPolicyContainers() => CheckProvider(forUninstall: true) || CheckSubLayer();
 
     /// <inheritdoc />
     public void EnsureBlock(WfpBlockRule rule)

@@ -19,6 +19,9 @@ public interface IWfpSession : IDisposable
     /// <summary>Checks the provider and sublayer without creating or changing objects.</summary>
     bool HasPolicyOwner();
 
+    /// <summary>Detects either owned container, including partial or disabled installations, for pristine-namespace checks.</summary>
+    bool HasPolicyContainers();
+
     /// <summary>Adds a missing block or verifies that an existing filter matches it exactly.</summary>
     void EnsureBlock(WfpBlockRule rule);
 

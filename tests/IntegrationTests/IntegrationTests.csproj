@@ -13,4 +13,7 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Avalonia.Headless.XUnit" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../scripts/Test-WfpVm.ps1" Link="Test-WfpVm.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

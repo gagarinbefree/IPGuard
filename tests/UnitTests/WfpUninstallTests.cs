@@ -144,6 +144,9 @@ public sealed class WfpUninstallTests
         /// <inheritdoc />
         public bool IsDynamic { get; init; }
 
+        /// <inheritdoc />
+        public bool HasPolicyContainers() => throw new InvalidOperationException("Uninstall validates its removal snapshot.");
+
         /// <summary>Gets committed baseline filters.</summary>
         public Dictionary<Guid, WfpBlockRule> Blocks { get; } = [];
 

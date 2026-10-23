@@ -210,6 +210,9 @@ public sealed class WfpPermitLeaseTests
         public bool IsDynamic { get; init; } = true;
 
         /// <inheritdoc />
+        public bool HasPolicyContainers() => throw new InvalidOperationException("A permit lease must not run VM namespace checks.");
+
+        /// <inheritdoc />
         public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall() => throw new InvalidOperationException("A permit lease must not uninstall policy.");
 
         /// <inheritdoc />

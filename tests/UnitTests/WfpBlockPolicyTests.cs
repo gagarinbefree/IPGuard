@@ -199,6 +199,9 @@ public sealed class WfpBlockPolicyTests
         public bool IsDynamic { get; init; }
 
         /// <inheritdoc />
+        public bool HasPolicyContainers() => throw new InvalidOperationException("This fixture does not run VM namespace checks.");
+
+        /// <inheritdoc />
         public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall() => throw new InvalidOperationException("This fixture does not uninstall policy.");
 
         /// <inheritdoc />

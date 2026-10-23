@@ -62,7 +62,7 @@ The GUI uses Avalonia 12.1.3, Avalonia.Markup.Declarative 12.1.1, and CommunityT
 | `src/Desktop` | Entry point, dependency composition, window, view model, lifetime adapter, and tray. |
 | `src/Windows` | Prototype WFP baseline, permit lease, verified object selection for removal, native interop, application IDs, and inspection. |
 | `tests/UnitTests` | Shell commands, baseline/permit/removal operations with fake sessions, handle lifetime, ownership checks, pointer-array traversal, and native layouts. |
-| `tests/IntegrationTests` | Safe headless UI tests and read-only Windows application ID resolution. |
+| `tests/IntegrationTests` | Safe headless UI tests, App ID resolution, VM safety/scenario tests with fakes, and one explicitly gated native VM test. |
 
 `DesktopBootstrapper` registers dependencies. `ShellViewModel` exposes commands through CommunityToolkit.Mvvm without accessing the OS directly. `IDesktopHost` defines show, hide, and shutdown operations; `AvaloniaDesktopHost` implements them using the window and desktop lifetime. `DesktopSession` removes the icon and releases dependencies when the application exits.
 
@@ -92,11 +92,13 @@ To add a shell action, implement the operation in the appropriate component, exp
 
 When changing views, use the API of the pinned Avalonia.Markup.Declarative version. The shell uses supported `Binding` instances with `nameof` and verifies them through pointer clicks in headless tests. Examples from the master branch may target a different API. See the [community library](https://github.com/AvaloniaCommunity/Avalonia.Markup.Declarative) and [Avalonia headless testing documentation](https://docs.avaloniaui.net/docs/testing/headless-xunit).
 
-For Windows filtering changes, keep native calls behind `IWfpSession` and test policy operations with a fake session. Extend the native serialization tests when changing fields or ownership metadata, and verify actual enforcement separately in the VM matrix. A fork that must coexist with IPGuard must choose its own provider/sublayer GUIDs and owner marker in `WfpPolicyIds`; these identifiers define policy ownership.
+For Windows filtering changes, keep native calls behind `IWfpSession` and test policy operations with a fake session. Extend the native serialization tests when changing fields or ownership metadata, and verify actual enforcement separately in the VM matrix. A fork that must coexist with IPGuard must choose its own provider/sublayer GUIDs and owner marker in `WfpPolicyIds`; these identifiers define policy ownership. Update the storage-key compatibility fixture deliberately when changing the namespace for a fork; shipped releases must preserve their existing key format.
 
 ## Testing and limitations
 
-A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The current 129 unit tests and 10 integration tests cover the shell, WFP transactions and permit lifetime through fakes, atomic uninstall, native handle error handling, removal ownership, pointer-array traversal, x64 structure layouts, and real App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` and frees its output; it does not add policy objects. Native enumeration and deletion calls have not been exercised by these tests. The headless platform does not verify native system tray clicks or the Explorer lifecycle.
+A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. It passes 129 unit tests and 36 safe integration tests, and **skips one native WFP VM test** with an explicit reason. The safe tests cover the shell, WFP transactions and permit lifetime through fakes, atomic uninstall, native handle errors, removal ownership, pointer-array traversal, x64 layouts, VM authorization, scenario cleanup, and real App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` without adding policy objects. One safe test starts a hidden PowerShell process to verify that the VM script rejects missing confirmations. Native enumeration and deletion have not been executed on the development machine. The headless platform does not verify native system tray clicks or Explorer lifecycle.
+
+The manual object test and its runner are described below. GitHub Actions explicitly disables VM mode, and the gate refuses to run when `CI` or `GITHUB_ACTIONS` is present. An ordinary successful CI run with a skipped VM test is not native WFP validation.
 
 To save a window preview from the headless test, provide an absolute output path whose parent directory exists:
 
@@ -110,6 +112,20 @@ try {
 }
 ```
 
-Real network tests require an explicitly enabled mode in an isolated Windows VM. Mutating integration tests and the complete enforcement lifecycle are not implemented at this stage. Presence tests and a successful build do not prove filter arbitration, activation after boot, revocation on process failure, or termination of existing flows. Blocking known PowerShell executable paths will not block child applications or unknown portable copies, and will not provide protection against a system administrator.
+## Manual WFP object test in a disposable VM
+
+The source includes one real mutating test, `WfpVmPolicyTests.PolicyObjects_CompleteRoundTrip`, tagged `Category=WfpVm`. **It has not been executed in a VM yet.** It checks creation, object readback, a temporary Permit, refusal to uninstall with active permits, confirmed session closure, and repeated uninstall. It creates rules only for a private copy of `powershell.exe` in the results directory. It does not execute that copy or send test traffic, so even a successful run proves only the object lifecycle.
+
+Prepare an isolated Windows x64 VM with the pinned SDK, a host checkpoint, and console access independent of networking. Use an elevated terminal in that VM and replace the sample names with the real VM and checkpoint names:
+
+```powershell
+.\scripts\Test-WfpVm.ps1 -ConfirmIsolatedVm -ConfirmSnapshot -MachineName 'IPGuard-VM' -SnapshotName 'Before-IPGuard'
+```
+
+The switches attest isolation and an existing checkpoint; software inside the guest cannot verify those facts. The script also checks the machine name and elevation, temporarily sets the test authorization variables, and restores the previous environment and working directory. A missing, failed, skipped, or empty TRX report makes the script fail. It does not request UAC elevation or enable this mode in CI. Details of the environment protocol are in the [VM validation program](docs/vm-validation.md).
+
+The test rejects any pre-existing IPGuard provider or sublayer, including partial installations, and serializes VM runs with a named mutex. It records OS edition, runtime and assembly version, executable hash, actual filter IDs/flags/conditions, and phase timestamps under `artifacts/wfp-vm/<run>/`, alongside TRX output. The PowerShell copy is retained as evidence. A scenario failure stops further removal; any installed baseline remains for investigation. Export the evidence and restore the checkpoint before retrying. Do not reset Firewall, force-delete unknown objects, or run cleanup against an existing installation.
+
+Actual TCP/UDP enforcement tests, boot validation, process-crash recovery, and the complete enforcement lifecycle remain unimplemented. Presence tests and a successful build do not prove filter arbitration, activation after boot, revocation on process failure, or termination of existing flows. Blocking known PowerShell executable paths will not block child applications or unknown portable copies, and will not provide protection against a system administrator.
 
 Research and remaining acceptance criteria: [technical decisions](docs/technical-research.md), [implementation plan](docs/implementation-plan.md), and [VM validation program](docs/vm-validation.md).
