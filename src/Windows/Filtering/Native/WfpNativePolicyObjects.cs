@@ -5,6 +5,13 @@ namespace IPGuard.Windows.Filtering.Native;
 /// <summary>Serializes and verifies IPGuard's persistent policy containers.</summary>
 internal static class WfpNativePolicyObjects
 {
+    /// <summary>Checks ownership for removal even if BFE disabled the persistent provider.</summary>
+    internal static bool MatchesForUninstall(NativeProvider provider)
+    {
+        provider.Flags &= ~0x10u;
+        return Matches(provider);
+    }
+
     /// <summary>Creates a persistent provider without a service association.</summary>
     internal static NativeProvider CreateProvider(NativeMemoryScope memory) => new()
     {

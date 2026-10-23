@@ -209,6 +209,15 @@ public sealed class WfpPermitLeaseTests
         /// <inheritdoc />
         public bool IsDynamic { get; init; } = true;
 
+        /// <inheritdoc />
+        public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall() => throw new InvalidOperationException("A permit lease must not uninstall policy.");
+
+        /// <inheritdoc />
+        public void RemoveBlock(WfpBlockRule rule) => throw new InvalidOperationException("A permit lease must not remove blocks.");
+
+        /// <inheritdoc />
+        public void RemovePolicyOwner() => throw new InvalidOperationException("A permit lease must not remove containers.");
+
         /// <summary>Gets committed permits belonging exclusively to this fake session.</summary>
         public List<WfpBlockRule> Permits { get; } = [];
 

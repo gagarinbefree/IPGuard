@@ -199,6 +199,15 @@ public sealed class WfpBlockPolicyTests
         public bool IsDynamic { get; init; }
 
         /// <inheritdoc />
+        public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall() => throw new InvalidOperationException("This fixture does not uninstall policy.");
+
+        /// <inheritdoc />
+        public void RemoveBlock(WfpBlockRule rule) => throw new InvalidOperationException("Baseline installation must not remove blocks.");
+
+        /// <inheritdoc />
+        public void RemovePolicyOwner() => throw new InvalidOperationException("Baseline installation must not remove containers.");
+
+        /// <inheritdoc />
         public void AddPermitFor(WfpBlockRule baseline) => throw new InvalidOperationException("Baseline operations must not add permits.");
 
         /// <summary>Gets committed filters that survive an aborted transaction.</summary>

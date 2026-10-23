@@ -1,6 +1,6 @@
 namespace IPGuard.Windows.Filtering;
 
-/// <summary>Installs and inspects a block baseline without providing an allow mode.</summary>
+/// <summary>Installs, inspects, and explicitly uninstalls a block baseline without providing an allow mode.</summary>
 public sealed class WfpBlockPolicy
 {
     private readonly Func<IWfpSession> _openSession;
@@ -15,6 +15,31 @@ public sealed class WfpBlockPolicy
     {
         ArgumentNullException.ThrowIfNull(openSession);
         _openSession = openSession;
+    }
+
+    /// <summary>Removes all verified prototype baseline objects atomically, only for explicit uninstallation.</summary>
+    /// <remarks>This intentionally removes protection; it is not a transition to the blocked state.</remarks>
+    public void Uninstall()
+    {
+        var session = _openSession();
+        WfpCleanup.Run(() =>
+        {
+            if (session.IsDynamic)
+            {
+                throw new InvalidOperationException("Uninstall requires a non-dynamic WFP session.");
+            }
+
+            WfpTransaction.Run(session, readOnly: false, () =>
+            {
+                var rules = session.GetBlocksForUninstall();
+                foreach (var rule in rules)
+                {
+                    session.RemoveBlock(rule);
+                }
+
+                session.RemovePolicyOwner();
+            });
+        }, session.Dispose);
     }
 
     /// <summary>Installs all required blocks atomically; failures must not leave partial changes.</summary>

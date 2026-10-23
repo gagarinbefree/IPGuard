@@ -49,6 +49,30 @@ internal static class WfpNativeMethods
     [DllImport("fwpuclnt.dll", ExactSpelling = true)]
     internal static extern uint FwpmFilterAdd0(nint engine, in NativeFilter filter, nint securityDescriptor, out ulong id);
 
+    /// <summary>Deletes one filter by key without touching unrelated objects.</summary>
+    [DllImport("fwpuclnt.dll", ExactSpelling = true)]
+    internal static extern uint FwpmFilterDeleteByKey0(nint engine, in Guid key);
+
+    /// <summary>Deletes a sublayer only when no remaining object references it.</summary>
+    [DllImport("fwpuclnt.dll", ExactSpelling = true)]
+    internal static extern uint FwpmSubLayerDeleteByKey0(nint engine, in Guid key);
+
+    /// <summary>Deletes a provider only when no remaining object references it.</summary>
+    [DllImport("fwpuclnt.dll", ExactSpelling = true)]
+    internal static extern uint FwpmProviderDeleteByKey0(nint engine, in Guid key);
+
+    /// <summary>Creates a snapshot enumerator; a null template requests all readable filters.</summary>
+    [DllImport("fwpuclnt.dll", ExactSpelling = true)]
+    internal static extern uint FwpmFilterCreateEnumHandle0(nint engine, nint template, out nint enumeration);
+
+    /// <summary>Reads an API-owned array of filter pointers from the next snapshot page.</summary>
+    [DllImport("fwpuclnt.dll", ExactSpelling = true)]
+    internal static extern uint FwpmFilterEnum0(nint engine, nint enumeration, uint requested, out nint entries, out uint count);
+
+    /// <summary>Releases a snapshot enumerator independently of its already freed pages.</summary>
+    [DllImport("fwpuclnt.dll", ExactSpelling = true)]
+    internal static extern uint FwpmFilterDestroyEnumHandle0(nint engine, nint enumeration);
+
     /// <summary>Resolves a filename into a BFE-allocated application ID without adding a filter.</summary>
     [DllImport("fwpuclnt.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     internal static extern uint FwpmGetAppIdFromFileName0(string fileName, out nint applicationId);

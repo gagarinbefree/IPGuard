@@ -18,6 +18,81 @@ internal sealed class NativeWfpSession : IWfpSession
     /// <inheritdoc />
     public bool IsDynamic { get; }
 
+    /// <inheritdoc />
+    public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall()
+    {
+        RequireStaticSession();
+        CheckProvider(forUninstall: true);
+        CheckSubLayer();
+        var rules = new List<WfpBlockRule>();
+        WfpFilterEnumerator.Visit(_engine, filter =>
+        {
+            var rule = WfpNativeFilter.GetBlockForUninstall(filter);
+            if (rule is not null)
+            {
+                rules.Add(rule);
+            }
+        });
+        return rules;
+    }
+
+    /// <inheritdoc />
+    public void RemoveBlock(WfpBlockRule rule)
+    {
+        RequireStaticSession();
+        ArgumentNullException.ThrowIfNull(rule);
+        bool? matches = ReadFilterMatch(rule.Key, filter => WfpNativeFilter.MatchesForUninstall(filter, rule));
+        if (matches is null)
+        {
+            return;
+        }
+
+        if (matches != true)
+        {
+            throw new InvalidOperationException($"WFP block {rule.Key} no longer matches its verified removal snapshot.");
+        }
+
+        Check(Call(engine => WfpNativeMethods.FwpmFilterDeleteByKey0(engine, rule.Key)), "FwpmFilterDeleteByKey0");
+        if (ReadFilterMatch(rule.Key, _ => true) is not null)
+        {
+            throw new InvalidOperationException($"WFP filter {rule.Key} is still present after deletion.");
+        }
+    }
+
+    /// <inheritdoc />
+    public void RemovePolicyOwner()
+    {
+        RequireStaticSession();
+        bool providerPresent = CheckProvider(forUninstall: true);
+        bool subLayerPresent = CheckSubLayer();
+        if (subLayerPresent)
+        {
+            Check(Call(engine => WfpNativeMethods.FwpmSubLayerDeleteByKey0(engine, WfpPolicyIds.SubLayer)), "FwpmSubLayerDeleteByKey0");
+            if (CheckSubLayer())
+            {
+                throw new InvalidOperationException("The WFP sublayer is still present after deletion.");
+            }
+        }
+
+        if (providerPresent)
+        {
+            Check(Call(engine => WfpNativeMethods.FwpmProviderDeleteByKey0(engine, WfpPolicyIds.Provider)), "FwpmProviderDeleteByKey0");
+            if (CheckProvider(forUninstall: true))
+            {
+                throw new InvalidOperationException("The WFP provider is still present after deletion.");
+            }
+        }
+    }
+
+    /// <summary>Rejects baseline deletion through a dynamic permit-owner session.</summary>
+    private void RequireStaticSession()
+    {
+        if (IsDynamic)
+        {
+            throw new InvalidOperationException("Baseline removal requires a non-dynamic WFP session.");
+        }
+    }
+
     /// <summary>Opens a session whose filters are removed when its owner disconnects.</summary>
     public static IWfpSession OpenDynamic() => Open(dynamic: true);
 
@@ -82,15 +157,7 @@ internal sealed class NativeWfpSession : IWfpSession
         try
         {
             Check(WfpNativeMethods.FwpmGetAppIdFromFileName0(executablePath, out pointer), "FwpmGetAppIdFromFileName0");
-            var blob = Read<NativeBlob>(pointer);
-            if (blob.Size == 0 || blob.Size > 65_536 || blob.Data == 0)
-            {
-                throw new InvalidOperationException("Windows returned an invalid application ID blob.");
-            }
-
-            byte[] applicationId = new byte[checked((int)blob.Size)];
-            Marshal.Copy(blob.Data, applicationId, 0, applicationId.Length);
-            return applicationId;
+            return WfpNativeApplicationId.Copy(Read<NativeBlob>(pointer));
         }
         finally
         {
@@ -161,8 +228,8 @@ internal sealed class NativeWfpSession : IWfpSession
     /// <inheritdoc />
     public bool IsBlockPresent(WfpBlockRule rule) => ReadBlock(rule) == true;
 
-    /// <summary>Verifies an existing provider and rejects same-key collisions or disabled policy.</summary>
-    private bool CheckProvider()
+    /// <summary>Verifies provider ownership; uninstall may additionally accept its disabled-state bit.</summary>
+    private bool CheckProvider(bool forUninstall = false)
     {
         nint pointer = 0;
         uint result = Call(engine => WfpNativeMethods.FwpmProviderGetByKey0(engine, WfpPolicyIds.Provider, out pointer));
@@ -175,7 +242,8 @@ internal sealed class NativeWfpSession : IWfpSession
         try
         {
             var provider = Read<NativeProvider>(pointer);
-            if (!WfpNativePolicyObjects.Matches(provider))
+            bool matches = forUninstall ? WfpNativePolicyObjects.MatchesForUninstall(provider) : WfpNativePolicyObjects.Matches(provider);
+            if (!matches)
             {
                 throw new InvalidOperationException("The existing WFP provider is disabled or has incompatible ownership metadata.");
             }

@@ -46,12 +46,18 @@ internal static class WfpPowerShellScope
 
             foreach (var layer in WfpPolicyIds.Layers)
             {
-                byte[] identity = [.. WfpPolicyIds.Provider.ToByteArray(), .. layer.ToByteArray(), .. applicationId];
-                var key = new Guid(SHA256.HashData(identity).AsSpan(0, 16));
+                var key = CreateKey(layer, applicationId);
                 rules.TryAdd(key, new WfpBlockRule(key, layer, applicationId));
             }
         }
 
         return rules.Values.ToArray();
+    }
+
+    /// <summary>Preserves the stored baseline key format without requiring an executable to remain installed.</summary>
+    internal static Guid CreateKey(Guid layer, ReadOnlySpan<byte> applicationId)
+    {
+        byte[] identity = [.. WfpPolicyIds.Provider.ToByteArray(), .. layer.ToByteArray(), .. applicationId];
+        return new Guid(SHA256.HashData(identity).AsSpan(0, 16));
     }
 }

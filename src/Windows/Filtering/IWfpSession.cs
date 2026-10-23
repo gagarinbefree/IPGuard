@@ -28,6 +28,16 @@ public interface IWfpSession : IDisposable
     /// <summary>Adds and verifies a non-persistent soft permit above the matching baseline block.</summary>
     void AddPermitFor(WfpBlockRule baseline);
 
+    /// <summary>Validates existing containers and every related filter before returning removable baseline blocks.</summary>
+    /// <remarks>Call within an explicit write transaction. Rejects active permits and unknown or conflicting objects; does not resolve executable paths.</remarks>
+    IReadOnlyList<WfpBlockRule> GetBlocksForUninstall();
+
+    /// <summary>Deletes a verified baseline block if present and confirms its absence.</summary>
+    void RemoveBlock(WfpBlockRule rule);
+
+    /// <summary>Deletes verified owned sublayer and provider, rejecting any remaining references.</summary>
+    void RemovePolicyOwner();
+
     /// <summary>Commits the current transaction or throws when its result is not confirmed.</summary>
     void CommitTransaction();
 

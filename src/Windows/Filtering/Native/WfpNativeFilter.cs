@@ -8,6 +8,49 @@ internal static class WfpNativeFilter
     private const uint UInt64Type = 4;
     private const uint ByteBlobType = 12;
 
+    /// <summary>Copies a verified owned block, ignoring unrelated filters and rejecting unsafe related objects.</summary>
+    internal static WfpBlockRule? GetBlockForUninstall(NativeFilter filter)
+    {
+        bool ownedProvider = filter.ProviderKey != 0 && Marshal.PtrToStructure<Guid>(filter.ProviderKey) == WfpPolicyIds.Provider;
+        if (!ownedProvider && filter.SubLayerKey != WfpPolicyIds.SubLayer)
+        {
+            return null;
+        }
+
+        if (!WfpPolicyIds.Layers.Contains(filter.LayerKey) || filter.ConditionCount != 1 || filter.Conditions == 0)
+        {
+            throw UninstallConflict(filter.Key);
+        }
+
+        var condition = Marshal.PtrToStructure<NativeCondition>(filter.Conditions);
+        if (condition.FieldKey != WfpPolicyIds.ApplicationId || condition.MatchType != 0 ||
+            condition.Value.Type != ByteBlobType || condition.Value.Pointer == 0)
+        {
+            throw UninstallConflict(filter.Key);
+        }
+
+        byte[] applicationId = WfpNativeApplicationId.Copy(Marshal.PtrToStructure<NativeBlob>(condition.Value.Pointer));
+        Guid key = WfpPowerShellScope.CreateKey(filter.LayerKey, applicationId);
+        var rule = new WfpBlockRule(key, filter.LayerKey, applicationId);
+        if (!MatchesForUninstall(filter, rule))
+        {
+            throw UninstallConflict(filter.Key);
+        }
+
+        return rule;
+    }
+
+    /// <summary>Allows only the disabled-state bit in addition to the exact persistent block schema.</summary>
+    internal static bool MatchesForUninstall(NativeFilter filter, WfpBlockRule rule)
+    {
+        filter.Flags &= ~0x20u;
+        return Matches(filter, rule);
+    }
+
+    /// <summary>Reports related filters that must not be deleted by this schema's uninstaller.</summary>
+    private static InvalidOperationException UninstallConflict(Guid key) =>
+        new($"WFP filter {key} is not a verified baseline block. Close permit owners and resolve unknown policy objects before uninstall.");
+
     /// <summary>Builds a non-persistent soft permit with a distinct session-owned key.</summary>
     internal static NativeFilter CreatePermit(WfpBlockRule baseline, Guid permitKey, NativeMemoryScope memory)
     {
