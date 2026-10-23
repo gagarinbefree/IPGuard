@@ -175,6 +175,18 @@ public sealed class WfpBlockPolicyTests
         Assert.Equal(WfpBaselineState.Incomplete, policy.Inspect([@"C:\Tools\pwsh.exe"]).State);
     }
 
+    /// <summary>Baseline installation must not accidentally use a short-lived dynamic session.</summary>
+    [Fact]
+    public void Install_RejectsADynamicSessionBeforeAnyPolicyOperation()
+    {
+        var session = new RecordingSession { IsDynamic = true };
+
+        Assert.Throws<InvalidOperationException>(() => new WfpBlockPolicy(() => session).Install([@"C:\Tools\pwsh.exe"]));
+
+        Assert.Equal(["dispose"], session.Events);
+        Assert.Empty(session.Stored);
+    }
+
     /// <summary>Models staged changes and injects operating-system failures without native calls.</summary>
     private sealed class RecordingSession : IWfpSession
     {
@@ -182,6 +194,12 @@ public sealed class WfpBlockPolicyTests
         private bool _pendingOwner;
         private int _adds;
         private int _reads;
+
+        /// <inheritdoc />
+        public bool IsDynamic { get; init; }
+
+        /// <inheritdoc />
+        public void AddPermitFor(WfpBlockRule baseline) => throw new InvalidOperationException("Baseline operations must not add permits.");
 
         /// <summary>Gets committed filters that survive an aborted transaction.</summary>
         public Dictionary<Guid, WfpBlockRule> Stored { get; } = [];

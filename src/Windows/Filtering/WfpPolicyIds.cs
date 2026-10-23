@@ -17,6 +17,8 @@ internal static class WfpPolicyIds
     internal const string DisplayName = "IPGuard block baseline prototype";
     internal const uint Persistent = 1;
     internal const uint Block = 0x1001;
+    internal const uint Permit = 0x1002;
     internal const ulong BlockWeight = 10;
+    internal const ulong PermitWeight = 20;
     internal const ushort SubLayerWeight = 0x8000;
 }

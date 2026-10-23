@@ -1,11 +1,11 @@
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using IPGuard.Windows.Filtering.Native;
+using static IPGuard.Windows.Filtering.Native.WfpNativeError;
 
 namespace IPGuard.Windows.Filtering;
 
-/// <summary>Manages prototype baseline objects through real user-mode WFP APIs.</summary>
-/// <remarks>Use exclusively within one operation. Writes require appropriate WFP privileges and an isolated VM during development.</remarks>
+/// <summary>Manages prototype block and permit objects through real user-mode WFP APIs.</summary>
+/// <remarks>Use from one owner without concurrent calls. Writes require appropriate WFP privileges and an isolated VM during development.</remarks>
 internal sealed class NativeWfpSession : IWfpSession
 {
     private const uint ProviderNotFound = 0x80320005;
@@ -13,26 +13,59 @@ internal sealed class NativeWfpSession : IWfpSession
     private const uint FilterNotFound = 0x80320003;
     private const uint WindowsAuthentication = 10;
     private const uint ReadOnlyTransaction = 1;
-    private nint _engine;
+    private readonly WfpEngineHandle _engine;
+
+    /// <inheritdoc />
+    public bool IsDynamic { get; }
+
+    /// <summary>Opens a session whose filters are removed when its owner disconnects.</summary>
+    public static IWfpSession OpenDynamic() => Open(dynamic: true);
+
+    /// <summary>Builds explicit session flags without opening BFE or changing policy.</summary>
+    internal static NativeSession CreateSettings(bool dynamic, NativeMemoryScope memory) => new()
+    {
+        DisplayData = new NativeDisplayData { Name = memory.Text(WfpPolicyIds.DisplayName) },
+        Flags = dynamic ? 1u : 0u,
+        TransactionWaitMilliseconds = 5_000
+    };
+
+    /// <inheritdoc />
+    public void AddPermitFor(WfpBlockRule baseline)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
+        if (!IsDynamic)
+        {
+            throw new InvalidOperationException("Permits must belong to a dynamic WFP session.");
+        }
+
+        using var memory = new NativeMemoryScope();
+        Guid key = Guid.NewGuid();
+        var filter = WfpNativeFilter.CreatePermit(baseline, key, memory);
+        Check(Call(engine => WfpNativeMethods.FwpmFilterAdd0(engine, filter, 0, out _)), "FwpmFilterAdd0");
+        if (ReadFilterMatch(key, stored => WfpNativeFilter.MatchesPermit(stored, baseline, key)) != true)
+        {
+            throw new InvalidOperationException($"WFP permit {key} could not be verified after creation.");
+        }
+    }
 
     /// <summary>Takes ownership of an already opened native session.</summary>
-    private NativeWfpSession(nint engine) => _engine = engine;
-
-    /// <summary>Closes an abandoned session without throwing on the finalizer thread.</summary>
-    ~NativeWfpSession() => Release();
+    private NativeWfpSession(nint engine, bool dynamic)
+    {
+        _engine = new WfpEngineHandle(engine, WfpNativeMethods.FwpmEngineClose0);
+        IsDynamic = dynamic;
+    }
 
     /// <summary>Opens a non-dynamic session; this operation alone does not create policy objects.</summary>
-    public static IWfpSession Open()
+    public static IWfpSession Open() => Open(dynamic: false);
+
+    /// <summary>Opens a management or permit session using explicitly selected lifetime flags.</summary>
+    private static IWfpSession Open(bool dynamic)
     {
         RequireWindowsX64();
         using var memory = new NativeMemoryScope();
-        var session = new NativeSession
-        {
-            DisplayData = new NativeDisplayData { Name = memory.Text(WfpPolicyIds.DisplayName) },
-            TransactionWaitMilliseconds = 5_000
-        };
+        var session = CreateSettings(dynamic, memory);
         Check(WfpNativeMethods.FwpmEngineOpen0(0, WindowsAuthentication, 0, session, out nint engine), "FwpmEngineOpen0");
-        return new NativeWfpSession(engine);
+        return new NativeWfpSession(engine, dynamic);
     }
 
     /// <summary>Resolves an application ID without creating filters or changing policy.</summary>
@@ -183,10 +216,13 @@ internal sealed class NativeWfpSession : IWfpSession
     }
 
     /// <summary>Distinguishes an absent filter from a present but unsafe same-key object.</summary>
-    private bool? ReadBlock(WfpBlockRule rule)
+    private bool? ReadBlock(WfpBlockRule rule) => ReadFilterMatch(rule.Key, filter => WfpNativeFilter.Matches(filter, rule));
+
+    /// <summary>Reads one filter without confusing absence, a mismatch, and an API failure.</summary>
+    private bool? ReadFilterMatch(Guid key, Func<NativeFilter, bool> matches)
     {
         nint pointer = 0;
-        uint result = Call(engine => WfpNativeMethods.FwpmFilterGetByKey0(engine, rule.Key, out pointer));
+        uint result = Call(engine => WfpNativeMethods.FwpmFilterGetByKey0(engine, key, out pointer));
         if (result == FilterNotFound)
         {
             return null;
@@ -195,7 +231,7 @@ internal sealed class NativeWfpSession : IWfpSession
         Check(result, "FwpmFilterGetByKey0");
         try
         {
-            return WfpNativeFilter.Matches(Read<NativeFilter>(pointer), rule);
+            return matches(Read<NativeFilter>(pointer));
         }
         finally
         {
@@ -204,18 +240,7 @@ internal sealed class NativeWfpSession : IWfpSession
     }
 
     /// <summary>Keeps the native session alive until a synchronous API call has returned.</summary>
-    private uint Call(Func<nint, uint> operation)
-    {
-        ObjectDisposedException.ThrowIf(_engine == 0, this);
-        try
-        {
-            return operation(_engine);
-        }
-        finally
-        {
-            GC.KeepAlive(this);
-        }
-    }
+    private uint Call(Func<nint, uint> operation) => _engine.Use(operation);
 
     /// <summary>Rejects a null API output before reading a native structure.</summary>
     private static T Read<T>(nint pointer) where T : struct => pointer != 0
@@ -231,15 +256,6 @@ internal sealed class NativeWfpSession : IWfpSession
         }
     }
 
-    /// <summary>Preserves the API name and complete WFP or RPC error code.</summary>
-    private static void Check(uint result, string operation)
-    {
-        if (result != 0)
-        {
-            throw new Win32Exception(unchecked((int)result), $"{operation} failed (0x{result:X8}).");
-        }
-    }
-
     /// <summary>Limits native calls to the ABI tested by the current Windows build.</summary>
     private static void RequireWindowsX64()
     {
@@ -249,18 +265,6 @@ internal sealed class NativeWfpSession : IWfpSession
         }
     }
 
-    /// <summary>Closes this management session; persistent blocks are not removed.</summary>
-    public void Dispose()
-    {
-        uint result = Release();
-        GC.SuppressFinalize(this);
-        Check(result, "FwpmEngineClose0");
-    }
-
-    /// <summary>Atomically relinquishes the handle so repeated disposal cannot close it twice.</summary>
-    private uint Release()
-    {
-        nint engine = Interlocked.Exchange(ref _engine, 0);
-        return engine == 0 ? 0 : WfpNativeMethods.FwpmEngineClose0(engine);
-    }
+    /// <summary>Closes the session and its dynamic permits; persistent blocks are not removed.</summary>
+    public void Dispose() => _engine.Dispose();
 }

@@ -8,7 +8,7 @@
 
 IPGuard is a Windows desktop application with a status window and a system tray icon. Its goal is to control PowerShell network access based on the country associated with the computer's public IP address.
 
-**Current stage: application shell and an unconnected WFP block prototype. Running the application does not restrict PowerShell network access.** Public IP detection, GeoIP lookup, temporary permissions, and protection lifecycle handling are not implemented yet. The interface explicitly reports that protection is unavailable and the network filter state is unknown.
+**Current stage: application shell and an unconnected WFP block/permit prototype. Running the application does not restrict PowerShell network access.** Public IP detection, GeoIP lookup, route validation, and protection lifecycle handling are not implemented yet. The interface explicitly reports that protection is unavailable and the network filter state is unknown.
 
 ## Requirements and startup
 
@@ -60,8 +60,8 @@ The GUI uses Avalonia 12.1.3, Avalonia.Markup.Declarative 12.1.1, and CommunityT
 | Project | Responsibility |
 | --- | --- |
 | `src/Desktop` | Entry point, dependency composition, window, view model, lifetime adapter, and tray. |
-| `src/Windows` | Prototype WFP baseline, native interop, application IDs, and object inspection. |
-| `tests/UnitTests` | Shell commands, atomic baseline operations with a fake session, ownership checks, and native filter layouts. |
+| `src/Windows` | Prototype WFP baseline and permit lease, native interop, application IDs, and object inspection. |
+| `tests/UnitTests` | Shell commands, atomic baseline/permit operations with fake sessions, handle lifetime, ownership checks, and native filter layouts. |
 | `tests/IntegrationTests` | Safe headless UI tests and read-only Windows application ID resolution. |
 
 `DesktopBootstrapper` registers dependencies. `ShellViewModel` exposes commands through CommunityToolkit.Mvvm without accessing the OS directly. `IDesktopHost` defines show, hide, and shutdown operations; `AvaloniaDesktopHost` implements them using the window and desktop lifetime. `DesktopSession` removes the icon and releases dependencies when the application exits.
@@ -70,7 +70,13 @@ The `Domain`, `Application`, `Infrastructure`, and `Cli` projects will be added 
 
 The Windows prototype is intentionally separate from desktop dependency registration. `WfpBlockPolicy` creates one management session per operation. `Install` validates full PowerShell paths and resolves Windows App IDs before starting a write transaction. It creates persistent owned provider/sublayer objects and four application-scoped Block filters: ALE connect and receive/accept for IPv4 and IPv6. It verifies ownership and existing filter definitions, rejects conflicts without replacing objects, and aborts the transaction when an operation fails. Rollback failures preserve both errors.
 
-`Inspect` uses a read-only transaction and reports `Present`, `Incomplete`, or `Unknown`. These describe the stored objects. **`Present` does not mean traffic blocking has been verified**, and read or snapshot failures never produce a successful result. This prototype does not install boot-time filters, create Permit filters, or provide an uninstaller. Its mutating APIs have not been run on the development machine or validated in a VM. Use only a disposable isolated administrator VM for future write experiments; the normal desktop executable has no reference to this adapter.
+`Inspect` uses a read-only transaction and reports `Present`, `Incomplete`, or `Unknown`. These describe the stored objects. **`Present` does not mean traffic blocking has been verified**, and read or snapshot failures never produce a successful result.
+
+`WfpPermitLease.Open` owns a separate dynamic session. In one write transaction it verifies all required baseline objects before adding any Permit. Permits use distinct keys, the same App ID and ALE layers, a higher weight in the same owned sublayer, and no persistent or hard-permit flags. Persistent blocks are retained. A failed grant attempts rollback of a started transaction and session closure; operation, rollback, and close errors remain observable. Baseline installation rejects dynamic sessions, and permit creation rejects non-dynamic sessions.
+
+Disposing a lease closes only its own session. `IsClosed` becomes true only after successful session closure; it does not confirm traffic blocking or the absence of other owners' permits. A close error is preserved and rethrown on later disposal calls. The native handle is not reused after that error because its validity is undocumented; the actual BFE state remains unknown. A finalizer only attempts cleanup for a handle that has never been closed explicitly. [WFP session lifetimes](https://learn.microsoft.com/en-us/windows/win32/fwp/object-management) and [close results](https://learn.microsoft.com/en-us/windows/win32/api/fwpmu/nf-fwpmu-fwpmengineclose0) still require real VM validation.
+
+The permit prototype is **for controlled VM experiments only**: it scopes by application, without proving or restricting a verified external route. It does not expire grants, handle a hung owner, or enforce a single owner across processes. Do not enable it as a production allow mode. This prototype does not install boot-time filters or provide an uninstaller. Its mutating APIs have not been run on the development machine or validated in a VM. Use only a disposable isolated administrator VM for future write experiments; the normal desktop executable has no reference to this adapter.
 
 ## Contributing and creating forks
 
@@ -86,7 +92,7 @@ For Windows filtering changes, keep native calls behind `IWfpSession` and test p
 
 ## Testing and limitations
 
-A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The current 53 unit tests and 10 integration tests cover the shell, WFP transaction behavior through a fake, native ownership/filter validation, x64 structure layouts, and real App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` and frees its output; it does not add policy objects. The headless platform does not verify native system tray clicks or the Explorer lifecycle.
+A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The current 88 unit tests and 10 integration tests cover the shell, WFP transactions and permit lifetime through fakes, native handle error handling, ownership/filter validation, x64 structure layouts, and real App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` and frees its output; it does not add policy objects. The headless platform does not verify native system tray clicks or the Explorer lifecycle.
 
 To save a window preview from the headless test, provide an absolute output path whose parent directory exists:
 

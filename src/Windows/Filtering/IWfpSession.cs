@@ -1,9 +1,12 @@
 namespace IPGuard.Windows.Filtering;
 
-/// <summary>Exposes the WFP operations needed by a persistent block baseline.</summary>
-/// <remarks>A session belongs to one operation and must not be shared between callers.</remarks>
+/// <summary>Exposes the WFP operations needed by a block baseline and prototype permit lease.</summary>
+/// <remarks>A session belongs to one owner and must not be used concurrently or shared between leases.</remarks>
 public interface IWfpSession : IDisposable
 {
+    /// <summary>Gets whether objects added to this session disappear when it closes.</summary>
+    bool IsDynamic { get; }
+
     /// <summary>Resolves an executable path through the operating system's application ID API.</summary>
     byte[] GetApplicationId(string executablePath);
 
@@ -21,6 +24,9 @@ public interface IWfpSession : IDisposable
 
     /// <summary>Checks the complete stored filter definition, including its enabled state.</summary>
     bool IsBlockPresent(WfpBlockRule rule);
+
+    /// <summary>Adds and verifies a non-persistent soft permit above the matching baseline block.</summary>
+    void AddPermitFor(WfpBlockRule baseline);
 
     /// <summary>Commits the current transaction or throws when its result is not confirmed.</summary>
     void CommitTransaction();
