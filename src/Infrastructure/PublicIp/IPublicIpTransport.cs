@@ -1,3 +1,5 @@
+using IPGuard.Application.PublicIp;
+
 namespace IPGuard.Infrastructure.PublicIp;
 
 /// <summary>Separates direct validated HTTPS transport from bounded response interpretation.</summary>

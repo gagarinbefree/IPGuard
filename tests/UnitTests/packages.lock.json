@@ -331,6 +331,12 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
+      "application": {
+        "type": "Project",
+        "dependencies": {
+          "Domain": "[0.1.0-preview.local, )"
+        }
+      },
       "desktop": {
         "type": "Project",
         "dependencies": {
@@ -347,7 +353,7 @@
       "infrastructure": {
         "type": "Project",
         "dependencies": {
-          "Domain": "[0.1.0-preview.local, )"
+          "Application": "[0.1.0-preview.local, )"
         }
       },
       "windows": {

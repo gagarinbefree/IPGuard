@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using IPGuard.Application.PublicIp;
 using IPGuard.Infrastructure.PublicIp;
 using Xunit;
 

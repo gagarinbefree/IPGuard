@@ -8,7 +8,7 @@
 
 IPGuard is a Windows desktop application with a status window and a system tray icon. Its goal is to control PowerShell network access based on the country associated with the computer's public IP address.
 
-**Current stage: application shell, public IP prerequisites and HTTPS adapters, and an unconnected WFP prototype for blocks, temporary permits, and policy removal. Running the application does not restrict PowerShell network access.** The adapters are not connected to the desktop. Network assessment orchestration, GeoIP lookup, route validation, and protection lifecycle handling are not implemented yet. The interface explicitly reports that protection is unavailable and the network filter state is unknown.
+**Current stage: application shell, public IP collection tied to a network generation, and an unconnected WFP prototype for blocks, temporary permits, and policy removal. Running the application does not restrict PowerShell network access.** Collection is not connected to the desktop. Windows network monitoring, GeoIP lookup, route validation, and protection lifecycle handling are not implemented yet. The interface explicitly reports that protection is unavailable and the network filter state is unknown.
 
 ## Requirements and startup
 
@@ -61,6 +61,7 @@ The GUI uses Avalonia 12.1.3, Avalonia.Markup.Declarative 12.1.1, and CommunityT
 | --- | --- |
 | `src/Desktop` | Entry point, dependency composition, window, view model, lifetime adapter, and tray. |
 | `src/Domain` | Deterministic public IP prerequisites: freshness, network generation, independent source agreement, address-bound country, and both IP families. |
+| `src/Application` | Generation-bound collection, shared source/result contracts, and the cached network snapshot boundary. |
 | `src/Infrastructure` | Direct per-family HTTPS transport, bounded public address parsing, source defaults, and complete attempt results. |
 | `src/Windows` | Prototype WFP baseline, permit lease, verified object selection for removal, native interop, application IDs, and inspection. |
 | `tests/UnitTests` | Public IP eligibility, shell commands, baseline/permit/removal operations with fake sessions, handle lifetime, ownership checks, pointer-array traversal, and native layouts. |
@@ -68,7 +69,7 @@ The GUI uses Avalonia 12.1.3, Avalonia.Markup.Declarative 12.1.1, and CommunityT
 
 `DesktopBootstrapper` registers dependencies. `ShellViewModel` exposes commands through CommunityToolkit.Mvvm without accessing the OS directly. `IDesktopHost` defines show, hide, and shutdown operations; `AvaloniaDesktopHost` implements them using the window and desktop lifetime. `DesktopSession` removes the icon and releases dependencies when the application exits.
 
-The `Application` and `Cli` projects will be added when their code is needed. Empty projects and adapters for future operating systems are not created in advance. Network policy must remain shared between the GUI and CLI and independent of Avalonia.
+The `Cli` project will be added when its code is needed. Empty projects and adapters for future operating systems are not created in advance. Domain has no project dependencies; Application depends on Domain, and Infrastructure depends on Application. Network policy must remain shared between the GUI and CLI and independent of Avalonia.
 
 ### Public IP prerequisites
 
@@ -78,7 +79,7 @@ Both IPv4 and IPv6 must be accounted for. Each available family needs successful
 
 The result exposes `Reason`, the failing `Family` when relevant, and `IsEligible`. **Eligibility is not permission to access the network.** The most favorable result is `EligibleForRouteValidation`; no Allow state or trusted-route switch exists. HTTPS agreement does not establish a common exit for arbitrary PowerShell traffic. A family reported as unavailable also needs enforcement confirmation before a future grant. There is no route enforcement implementation yet, and the desktop does not invoke this policy or open a permit.
 
-These types describe internal adapter output, not untrusted HTTP response models. Adapters must validate TLS, response format, public address ranges, and source operator configuration; include every configured request attempt; establish database validity; and collect all evidence within the assessment interval. The domain checks address family and agreement but is not a global address-range classifier. The HTTPS adapter below handles request output; local database and network assessment adapters remain unimplemented. Enforcement orchestration must separately recheck network generation and freshness when applying and revoking policy; a returned object cannot expire or revoke a permit on its own.
+These types describe internal adapter output, not untrusted HTTP response models. Adapters must validate TLS, response format, public address ranges, and source operator configuration; include every configured request attempt; establish database validity; and collect all evidence within the assessment interval. The domain checks address family and agreement but is not a global address-range classifier. The HTTPS adapter below handles request output; local database and Windows network monitor implementations remain unimplemented. Enforcement orchestration must separately recheck network generation and freshness when applying and revoking policy; a returned object cannot expire or revoke a permit on its own.
 
 ### HTTPS public IP adapters
 
@@ -95,7 +96,15 @@ Only status 200 and uncompressed `text/plain` are accepted. An absent charset, U
 
 Endpoint formats were checked against [ipify documentation](https://www.ipify.org/), [ident.me](https://www.ident.me/), and its [mirror's API documentation](https://api.tnedi.me/). ident.me and tnedi.me belong to the same operator group and must not count as independent sources. Defaults are configuration, not an assurance of source honesty or infrastructure independence. There were no live public endpoint calls from the application during this stage; test addresses are synthetic.
 
-`ReadAllAsync` starts every supplied attempt and returns an immutable list in configuration order, including failed and conflicting replies. Results carry `PublicIpReadStatus`, optional HTTP status, and a domain `PublicIpObservation`; every failure has a null address. The domain remains the single owner of consensus and country rules. A future Application use case must bind collection to the current network generation, account for both families, perform GeoIP lookup, and discard results after network changes. The reader alone neither constructs a complete `NetworkAssessment` nor grants access.
+`ReadAllAsync` starts every supplied attempt and returns an immutable list in configuration order, including failed and conflicting replies. Results carry `PublicIpReadStatus`, optional HTTP status, and a domain `PublicIpObservation`; every failure has a null address. `PublicIpReader` implements Application's `IPublicIpProbe`. Shared `PublicIpSource`, `PublicIpReadStatus`, and `PublicIpReadResult` contracts are in `IPGuard.Application.PublicIp`; HTTP clients and parsing stay in Infrastructure. The domain remains the single owner of consensus and country rules.
+
+### Collection and network changes
+
+`PublicIpCollector` composes a probe, an `INetworkSnapshotProvider`, copied source configuration, and an injectable UTC clock. It captures the starting time and cached network state, probes only explicitly available families, then checks the network again before returning a `PublicIpSnapshot`. A known network requires a nonempty generation, explicit availability for both families, and a cancellable invalidation signal. Unknown state starts no requests. Failed HTTPS requests never establish family absence.
+
+The provider must return an atomic cached snapshot. Every relevant route/interface/VPN change must permanently cancel the old signal and use a new generation, including disconnect/reconnect cycles. The signal is linked to in-flight probing. Late replies, changed generations, altered family availability, replacement signals, and clock rollback produce no snapshot. Missing, extra, reordered, substituted, or malformed probe results are rejected. Unexpected boundary failures retain the original exception in `Error`; caller cancellation is propagated. All request failures and conflicts remain visible when collection itself completes.
+
+`Completed` means collection finished; it is not an access decision. The returned snapshot records its interval, network state, and immutable attempts. Its network invalidation token remains live after completion. Consumers must check that token, the current generation, and freshness again before using the data; a final capture cannot make future network changes impossible. The collector does not apply filters, schedule checks, perform GeoIP lookup, or establish an enforced exit. A real Windows monitor and enforcement orchestration are still required. The next GeoIP step must extend the full assessment interval through lookup and recheck the generation before publication.
 
 The Windows prototype is intentionally separate from desktop dependency registration. `WfpBlockPolicy` creates one management session per operation. `Install` validates full PowerShell paths and resolves Windows App IDs before starting a write transaction. It creates persistent owned provider/sublayer objects and four application-scoped Block filters: ALE connect and receive/accept for IPv4 and IPv6. It verifies ownership and existing filter definitions, rejects conflicts without replacing objects, and aborts the transaction when an operation fails. Rollback failures preserve both errors.
 
@@ -117,7 +126,9 @@ Before making changes, read [AGENTS.md](AGENTS.md) and the [development skill](s
 
 Use short commit messages with simple English words, such as `Add Windows build` or `Fix tray menu`.
 
-For changes to address eligibility, add deterministic cases in `PublicIpPolicyTests` and keep `PublicIpPolicy` free of I/O. Source adapters should produce `PublicIpObservation` entries using configured operator identities; local database adapters should produce address-bound `GeoIpEvidence`. Reuse these prerequisites from future Application use cases. Do not translate `IsEligible` directly into `WfpPermitLease.Open`: granting access requires independently implemented and verified route enforcement and lifecycle control.
+For changes to address eligibility, add deterministic cases in `PublicIpPolicyTests` and keep `PublicIpPolicy` free of I/O. Source adapters should produce `PublicIpObservation` entries using configured operator identities; local database adapters should produce address-bound `GeoIpEvidence`. Reuse these prerequisites from Application scenarios. Do not translate `IsEligible` directly into `WfpPermitLease.Open`: granting access requires independently implemented and verified route enforcement and lifecycle control.
+
+For collection changes, use controlled `IPublicIpProbe` and `INetworkSnapshotProvider` implementations in `PublicIpCollectorTests`, then verify composition with the real bounded reader in `PublicIpCollectionTests`. Keep source/result contracts in Application so scenarios do not reference Infrastructure. A future Windows monitor must satisfy the version and invalidation contract; a constant version or an uncancellable token cannot stand in for monitoring.
 
 For public IP transport changes, test response handling with a composed `IPublicIpTransport` fake, then retain local socket, TLS rejection, and stalled-body checks. Update `PublicAddressParser` and its range tests together after reviewing IANA changes. Keep all attempts visible; adding an endpoint from an existing operator does not create another independent operator. Do not add real public service dependencies to ordinary tests or weaken certificate validation to make tests pass.
 
@@ -129,7 +140,7 @@ For Windows filtering changes, keep native calls behind `IWfpSession` and test p
 
 ## Testing and limitations
 
-A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The suite includes 322 unit cases, 41 safe integration cases, and **one native WFP VM test that is skipped by default** with an explicit reason. Safe tests cover HTTPS parsing and failures, public IP prerequisites, the shell, WFP operations through fakes, native memory layouts, VM authorization, and read-only App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` without adding policy objects. One safe test starts a hidden PowerShell process to verify that the VM script rejects missing confirmations. Native enumeration and deletion have not been executed on the development machine. The headless platform does not verify native system tray clicks or Explorer lifecycle.
+A normal `dotnet test` run does not launch a native window, contact public IP services, or change Firewall/WFP. The suite includes 363 unit cases, 43 safe integration cases, and **one native WFP VM test that is skipped by default** with an explicit reason. Safe tests cover generation changes, cancellation races, complete source coverage, reader/domain composition, HTTPS parsing and failures, public IP prerequisites, the shell, WFP operations through fakes, native memory layouts, VM authorization, and read-only App ID resolution. The latter calls `FwpmGetAppIdFromFileName0` without adding policy objects. One safe test starts a hidden PowerShell process to verify that the VM script rejects missing confirmations. Native enumeration and deletion have not been executed on the development machine. The headless platform does not verify native system tray clicks or Explorer lifecycle.
 
 Network integration cases use local IPv4/IPv6 loopback, a temporary in-memory self-signed TLS server, and an asynchronous named-pipe body. They do not install certificates or change machine trust. The test environment must support IPv6 sockets and allow loopback connections. Missing IPv6 support or access denied is an explicit failure; these cases cannot silently skip in CI. Endpoint availability on the real Internet and full route enforcement require separate validation.
 

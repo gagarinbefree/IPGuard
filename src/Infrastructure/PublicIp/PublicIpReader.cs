@@ -1,10 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
+using IPGuard.Application.PublicIp;
 
 namespace IPGuard.Infrastructure.PublicIp;
 
 /// <summary>Reads every configured source with a complete deadline and bounded plaintext interpretation.</summary>
-public sealed class PublicIpReader
+public sealed class PublicIpReader : IPublicIpProbe
 {
     private readonly IPublicIpTransport transport;
     private readonly TimeSpan timeout;

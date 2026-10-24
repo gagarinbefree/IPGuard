@@ -1,7 +1,7 @@
 using System.Net;
 using IPGuard.Domain;
 
-namespace IPGuard.Infrastructure.PublicIp;
+namespace IPGuard.Application.PublicIp;
 
 /// <summary>Distinguishes successful observations from bounded operational failures.</summary>
 public enum PublicIpReadStatus
@@ -26,7 +26,7 @@ public enum PublicIpReadStatus
 public sealed class PublicIpReadResult
 {
     /// <summary>Creates one diagnostic result; failed observations always contain a null address.</summary>
-    internal PublicIpReadResult(PublicIpSource source, PublicIpReadStatus status, IPAddress? address = null,
+    public PublicIpReadResult(PublicIpSource source, PublicIpReadStatus status, IPAddress? address = null,
         HttpStatusCode? httpStatus = null)
     {
         Source = source;

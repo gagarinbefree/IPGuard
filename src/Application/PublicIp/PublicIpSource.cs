@@ -1,6 +1,6 @@
 using System.Net.Sockets;
 
-namespace IPGuard.Infrastructure.PublicIp;
+namespace IPGuard.Application.PublicIp;
 
 /// <summary>Defines a trusted operator identity and one HTTPS plaintext endpoint for one IP family.</summary>
 public sealed class PublicIpSource

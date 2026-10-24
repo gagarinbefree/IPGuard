@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using IPGuard.Application.PublicIp;
 using IPGuard.Infrastructure.PublicIp;
 using Xunit;
 
