@@ -344,6 +344,12 @@
       "domain": {
         "type": "Project"
       },
+      "infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "Domain": "[0.1.0-preview.local, )"
+        }
+      },
       "windows": {
         "type": "Project"
       },

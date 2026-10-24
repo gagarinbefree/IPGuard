@@ -1,6 +1,6 @@
 # Техническое исследование IPGuard
 
-Дата проверки источников: 22–23 октября 2026 года.
+Дата проверки источников: 22–24 октября 2026 года.
 
 IPGuard будет настольным приложением с треем на .NET 10, Avalonia, Avalonia.Markup.Declarative и CommunityToolkit.Mvvm. Собственный Windows Service и драйвер ядра исключены. Для прототипа выбран пользовательский API WFP. Пригодность схемы для выпуска зависит от испытаний, перечисленных в [программе проверок VM](vm-validation.md).
 
@@ -99,6 +99,18 @@ Boot-time фильтры работают от старта TCP/IP до иниц
 Источники публичного IP должны быть независимыми по оператору; два URL одного оператора не являются двумя независимыми источниками. Для IPv4 и IPv6 отдельно проверяются публичность адреса, таймауты, TLS и согласие ответов. Пока общий путь не доказан, GeoIP со страной US недостаточен для разрешения. Сам HTTPS не доказывает честность ответа источника.
 
 Локальная GeoIP-база определяет страну в рамках своего покрытия и актуальности. Она не доказывает физическое местонахождение компьютера. Формат, поставщик, допустимый возраст и механизм проверки обновления выбираются при реализации GeoIP; отсутствие пригодной базы даёт Block. Обновление должно проходить проверку до атомарной замены рабочей базы.
+
+## HTTPS-адаптеры публичного IP — 2026-10-24
+
+При `ResponseHeadersRead` таймаут HttpClient заканчивает действие на заголовках. Реализация передаёт один ограниченный CancellationToken через DNS, TCP, TLS и чтение тела; общий дедлайн не заменяется отдельным свежим таймером после заголовков. Размер тела проверяется независимо от Content-Length и ограничен 128 байтами. [HttpCompletionOption](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.httpcompletionoption?view=net-10.0).
+
+Для каждого семейства используется свой Socket и DNS-запрос того же семейства через ConnectCallback. IPv6 DualMode отключён; другой стек после ошибки не подставляется. HTTP/1.1 выбран явно, чтобы соединения проходили через TCP callback. Установлены UseProxy=false, AllowAutoRedirect=false, UseCookies=false, AutomaticDecompression=None, PooledConnectionLifetime=0 и ограничение заголовков 8 KiB. Проверка сертификата и имени остаётся штатной, без callback обхода доверия. Это настройки соединений проверяющего приложения, а не доказательство пути PowerShell. [ConnectCallback](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.socketshttphandler.connectcallback?view=net-10.0), [UseProxy](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.socketshttphandler.useproxy?view=net-10.0), [AllowAutoRedirect](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.socketshttphandler.allowautoredirect?view=net-10.0).
+
+Принят консервативный snapshot диапазонов: исключаются IPv4 special-purpose, multicast и reserved; IPv6 должен входить в опубликованные global-unicast allocations и не попадать в специальные исключения. Отвергаются также globally reachable special-purpose anycast, NAT64, Teredo, 6to4 и неподдержанные новые allocations до пересмотра snapshot. Это проверка допустимого кандидата, не BGP-измерение. Источники snapshot, проверенные 24 октября 2026 года: [IANA IPv4 special-purpose](https://www.iana.org/assignments/iana-ipv4-special-registry/), [IANA IPv6 special-purpose](https://www.iana.org/assignments/iana-ipv6-special-registry/), [IANA IPv6 global unicast](https://www.iana.org/assignments/ipv6-unicast-address-assignments/). Результат не превращается в разрешение при устаревшей базе, неизвестном маршруте или изменившемся поколении сети.
+
+Default endpoints — api.ipify.org/api6.ipify.org и 4.ident.me/6.ident.me, по два настроенных оператора для каждого семейства. ident.me и tnedi.me не считаются независимыми. Используется только plaintext IP, удалённая GeoIP не участвует. Проверены описания API, а не доступность сервисов из приложения на этой машине. [ipify](https://www.ipify.org/), [ident.me](https://www.ident.me/), [документация зеркала](https://api.tnedi.me/). Классификация DNS/TLS/transport ошибок следует типизированному [HttpRequestError](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.httprequesterror?view=net-10.0).
+
+ReadAllAsync сохраняет все попытки и их порядок, не прячет отказ одного источника успешным кворумом. Консенсус остаётся в Domain. Захват поколения сети, полная сборка NetworkAssessment и отбрасывание результатов после изменения сети требуют будущего сценария Application и монитора этапа 7; этот адаптер не заменяет их.
 
 ## Мониторинг и отмена проверки
 

@@ -4,7 +4,7 @@ namespace IPGuard.Domain;
 
 /// <summary>Captures one validated HTTPS source reply or a failed request.</summary>
 /// <remarks>
-/// The adapter must validate TLS, response format, and global routability before supplying an address.
+/// The adapter must validate TLS, response format, and public-unicast address ranges before supplying an address.
 /// Operator identity comes from trusted source configuration, never from a response body.
 /// </remarks>
 public sealed class PublicIpObservation
