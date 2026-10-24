@@ -20,9 +20,9 @@ public sealed class PublicIpNetworkTests
     [InlineData(AddressFamily.InterNetworkV6)]
     public async Task ConnectAsync_UsesOnlyRequestedFamily(AddressFamily family)
     {
-        if (family == AddressFamily.InterNetworkV6 && !Socket.OSSupportsIPv6)
+        if (family == AddressFamily.InterNetworkV6)
         {
-            Assert.Skip("IPv6 sockets are unavailable on this machine.");
+            Assert.True(Socket.OSSupportsIPv6, "This integration test requires IPv6 socket support.");
         }
 
         IPAddress address = family == AddressFamily.InterNetwork ? IPAddress.Loopback : IPAddress.IPv6Loopback;
