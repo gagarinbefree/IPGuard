@@ -65,7 +65,7 @@ public sealed class PublicIpCollector
             NetworkSnapshot? after = network.Capture();
             DateTimeOffset completedAt = utcNow();
             cancellationToken.ThrowIfCancellationRequested();
-            if (!IsSameCurrentNetwork(before, after))
+            if (!before.MatchesCurrent(after))
             {
                 return new(PublicIpCollectionStatus.NetworkChanged);
             }
@@ -103,12 +103,6 @@ public sealed class PublicIpCollector
     /// <summary>Selects sources using captured availability without deriving absence from failed requests.</summary>
     private static bool IsAvailable(AddressFamily family, NetworkSnapshot snapshot) =>
         (family == AddressFamily.InterNetwork ? snapshot.Ipv4 : snapshot.Ipv6) == IpFamilyAvailability.Available;
-
-    /// <summary>Checks generation, both families, and the stable invalidation latch before publishing evidence.</summary>
-    private static bool IsSameCurrentNetwork(NetworkSnapshot before, NetworkSnapshot? after) => after is not null
-        && before.Version == after.Version && before.Ipv4 == after.Ipv4 && before.Ipv6 == after.Ipv6
-        && before.Invalidated == after.Invalidated
-        && !before.Invalidated.IsCancellationRequested && !after.Invalidated.IsCancellationRequested;
 
     /// <summary>Verifies complete ordered source coverage without taking over domain consensus or country rules.</summary>
     private static bool HasEveryAttempt(PublicIpSource[] expected, PublicIpReadResult[] attempts)

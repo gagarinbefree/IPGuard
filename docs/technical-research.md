@@ -116,7 +116,7 @@ Lookup синхронный и использует явный now. Открыт
 
 Для воспроизводимых тестов добавлены небольшие synthetic MMDB из MaxMind-DB на закреплённом commit, с provenance и MIT license. Проверены различающиеся country/registered_country, отсутствие страны при наличии registered_country, IPv4/IPv6, повреждение, размер, устаревание и замена источника при живом снимке. Рабочая база DB-IP не включена в репозиторий или EXE. [источник fixtures](https://github.com/maxmind/MaxMind-DB/tree/255b9a8b8a692d70dcaef31dc2ca44fa7ce50ece).
 
-Обновление реализовано следующим шагом 6b, описанным ниже. Сборка NetworkAssessment с повторной проверкой поколения остаётся следующим шагом 6c. Ошибка или прерванное обновление не должны разрешать сеть либо освежать старые данные.
+Обновление реализовано шагом 6b, описанным ниже, а сборка NetworkAssessment — шагом 6c. Ошибка или прерванное обновление не должны разрешать сеть либо освежать старые данные.
 
 ### Обновление DB-IP — 2026-10-24
 
@@ -133,6 +133,20 @@ Lookup синхронный и использует явный now. Открыт
 Отдельный ручной smoke, вне dotnet test: реальный HttpsGeoIpDownloadTransport → DbIpCountryDownloader → GeoIpDatabaseUpdater → MmdbCountryDatabase. Установлен DBIP-Country-Lite, 8 348 509 bytes, build 2026-10-01T01:36:12Z, maximumAge 45 days, deadline 2026-11-15T01:36:12Z. SHA-256 decoded MMDB: DBD70CCFA2A13627EAF4913D19920A1A229F1B3C5439AC01C509995B6364202A. Второй вызов получил Changed=false с теми же build/deadline/hash. Это наблюдение конкретного файла, не закрепление доверенного digest для будущих обновлений.
 
 Lookup тестовых адресов 8.8.8.8 и 2001:4860:4860::8888 вернул Found с US и CA соответственно. Это не определение публичного адреса рабочей машины и не доказательство физического расположения Google или компьютера. Результат дополнительно показывает, почему страна одного семейства не переносится на другое. Загруженный файл находится только в игнорируемом локальном cache и не входит в source/release. README содержит attribution; отображение результатов в GUI потребует attribution в интерфейсе. GUI/CLI и scheduler пока не подключены.
+
+### Сборка оценки сети — 2026-10-24
+
+NetworkAssessor в Application соединяет существующий PublicIpCollector, фабрику локальной IGeoIpCountryDatabase и PublicIpPolicy. Windows, MMDB, HTTP и GUI в сценарий не добавлены. Новый factory-owned снимок используется для всех lookup одной оценки и закрывается до финального checkpoint. Валидность источников определяет общий PublicIpConsensus в Domain; общий CheckInterval в PublicIpPolicy владеет порядком времени и exclusive age limit. Проверка совпадения снимков сети общая для collector и assessor. Это извлечение уже используемых правил, без нового механизма доверия к маршруту.
+
+Checkpoint повторно захватывает сеть, читает время, проверяет caller cancellation и исходный latch. Проверяются version, обе доступности и token identity. Возраст отсчитывается от начала HTTPS-сбора, а не окончания lookup; каждое новое время сравнивается с предыдущим. Срок проверяется до local work, после открытия, после каждого lookup и после cleanup. Исходные наблюдения не теряются: несогласованные/неудачные ответы остаются в Domain и диагностике, но адрес такой семьи не передаётся GeoIP. При обоих недоступных семействах или отсутствии согласованного адреса база не открывается, положительного решения нет.
+
+Весь интервал включает opening/lookup/disposal. App проверяет consistency database type/build/deadline/hash и привязку lookup к запрошенному адресу/deadline, а успешные страны оценивает существующая Domain policy. Отрицательный lookup, future/stale metadata, ошибка открытия/чтения или invalid adapter result не возвращают Snapshot. Сохраняются collection attempts, database metadata, валидированный отказ lookup и исходное исключение; ошибки lookup + cleanup сохраняются вместе. Caller cancellation имеет приоритет над возвращаемым результатом.
+
+Дополнительный TDD-случай: faulty adapter меняет IPAddress.ScopeId. До исправления сравнение с уже изменённым объектом пропускало adapter mismatch, возвращая Completed с отрицательным Domain.GeoIpAddressMismatch. Теперь строка исходного адреса фиксируется до вызова adapter и результат помечается InvalidGeoIpResult. Это защита привязки, а не утверждение, что adapter независимо подтверждает страну.
+
+Completed означает текущую завершённую оценку данных, а не доступ к сети. Snapshot содержит Evidence, предварительный Decision и живой NetworkSnapshot.Invalidated. Следующий потребитель обязан повторить проверку поколения/сигнала/времени и Domain evaluation: последнее чтение сети не предотвращает будущую смену. Публикация обновлённой базы также не переписывает уже полученный снимок; scheduler/lifecycle должны инициировать новую оценку. Общий выход PowerShell всё ещё не доказан, Permit не открывается, реального Windows monitor пока нет.
+
+9 безопасных интеграционных случаев соединяют настоящий PublicIpReader и MMDB decoder со сценарием/Domain на synthetic fixture и controlled HTTP. Проверены разные страны семейств (US/JP), unknown/registered-only country, unavailable IPv6, missing/corrupt database, источник файла, заменённый между lookup, и invalidation после настоящего lookup. Публичные источники IP, реальные GeoIP-download и mutating Firewall/WFP API не вызываются. Непроверенный live monitor остаётся этапом 7.
 
 ## HTTPS-адаптеры публичного IP — 2026-10-24
 

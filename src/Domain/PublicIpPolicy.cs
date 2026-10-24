@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Sockets;
 
 namespace IPGuard.Domain;
@@ -40,14 +39,10 @@ public sealed class PublicIpPolicy
             return new(PublicIpDecisionReason.NetworkChanged);
         }
 
-        if (assessment.StartedAt > assessment.CompletedAt || assessment.CompletedAt > now)
+        PublicIpDecisionReason? intervalFailure = CheckInterval(assessment.StartedAt, assessment.CompletedAt, now);
+        if (intervalFailure.HasValue)
         {
-            return new(PublicIpDecisionReason.InvalidTimestamps);
-        }
-
-        if (now - assessment.StartedAt >= maximumEvidenceAge)
-        {
-            return new(PublicIpDecisionReason.StaleAssessment);
+            return new(intervalFailure.Value);
         }
 
         PublicIpDecision? failure = EvaluateFamily(assessment.Ipv4, AddressFamily.InterNetwork, now)
@@ -64,6 +59,16 @@ public sealed class PublicIpPolicy
         }
 
         return new(PublicIpDecisionReason.EligibleForRouteValidation);
+    }
+
+    /// <summary>Checks an interval's order and exclusive age limit without needing country or source data.</summary>
+    public PublicIpDecisionReason? CheckInterval(DateTimeOffset startedAt, DateTimeOffset completedAt, DateTimeOffset now)
+    {
+        if (startedAt > completedAt || completedAt > now)
+        {
+            return PublicIpDecisionReason.InvalidTimestamps;
+        }
+        return now - startedAt >= maximumEvidenceAge ? PublicIpDecisionReason.StaleAssessment : null;
     }
 
     /// <summary>Checks availability, independent agreement, and the address-bound country for one family.</summary>
@@ -86,7 +91,7 @@ public sealed class PublicIpPolicy
             return new(PublicIpDecisionReason.UnknownAddressFamily, family);
         }
 
-        PublicIpDecisionReason? sourceFailure = CheckSources(evidence.Observations, family);
+        PublicIpDecisionReason? sourceFailure = PublicIpConsensus.Check(evidence.Observations, family);
         if (sourceFailure.HasValue)
         {
             return new(sourceFailure.Value, family);
@@ -115,42 +120,6 @@ public sealed class PublicIpPolicy
         }
 
         return allowedCountries.Contains(country) ? null : new(PublicIpDecisionReason.CountryNotAllowed, family);
-    }
-
-    /// <summary>Requires every configured reply to succeed and agree, with at least two independent operators.</summary>
-    private static PublicIpDecisionReason? CheckSources(IReadOnlyList<PublicIpObservation> observations, AddressFamily family)
-    {
-        var operators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string? agreedAddress = null;
-        foreach (PublicIpObservation observation in observations)
-        {
-            if (string.IsNullOrWhiteSpace(observation.OperatorId))
-            {
-                return PublicIpDecisionReason.InvalidSource;
-            }
-
-            if (observation.Address is null)
-            {
-                return PublicIpDecisionReason.SourceFailed;
-            }
-
-            IPAddress address = IPAddress.Parse(observation.Address);
-            if (address.AddressFamily != family || address.IsIPv4MappedToIPv6
-                || (family == AddressFamily.InterNetworkV6 && address.ScopeId != 0))
-            {
-                return PublicIpDecisionReason.AddressFamilyMismatch;
-            }
-
-            if (agreedAddress is not null && agreedAddress != observation.Address)
-            {
-                return PublicIpDecisionReason.ConflictingAddresses;
-            }
-
-            agreedAddress = observation.Address;
-            operators.Add(observation.OperatorId.Trim());
-        }
-
-        return operators.Count < 2 ? PublicIpDecisionReason.InsufficientSources : null;
     }
 
     /// <summary>Normalizes the supported code shape without treating malformed lookups as a country.</summary>
