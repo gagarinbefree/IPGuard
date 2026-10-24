@@ -8,6 +8,12 @@
         "resolved": "5.2.0",
         "contentHash": "UJ6zwjzV8YZ4YbELCUsK+9lEut5Ea6ks3p8CXEK9hQm8GxhJYrKsVxXcVvZsJ2Nzij1e89dXYrqUH7MCoWdhqg=="
       },
+      "System.IO.Hashing": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "jDix4bBMYnpZdSPcnY+KDV6ik3SRMzpMKby/bZl/XUwIiflwRNAFZ0oOl61R/pSaveIJ8t1gs2BUlrGsPs/bcg=="
+      },
       "application": {
         "type": "Project",
         "dependencies": {

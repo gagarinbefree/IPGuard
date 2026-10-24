@@ -9,3 +9,5 @@ Copyright (c) 2013-2026 MaxMind, Inc. Used under the MIT option of the upstream 
 `GeoIP2-Country-Test.mmdb` SHA-256: `FC12D6470B35B70BD3E4534DD433D3E262A6C73F7682F85C344E832D4190F02B`.
 
 `GeoIP2-City-Test.mmdb` tests rejection of an unsupported product. Expected country records are taken from the upstream `source-data/GeoIP2-Country-Test.json`. In particular, `81.2.69.160` has country `GB` and registered country `US`; `149.101.100.1` has country `US` and registered country `GB`.
+
+Updater tests derive temporary copies by changing the encoded build epoch or a country display name. The tracked fixtures remain unchanged. Derived data is used only to exercise freshness, rollback, and same-build conflicts; it is not evidence of real geolocation.

@@ -7,7 +7,6 @@ namespace IPGuard.Infrastructure.GeoIp;
 /// <summary>Decodes a bounded private MMDB copy with the official reader and no network fallback.</summary>
 internal sealed class MmdbCountryReader : IMmdbCountryReader
 {
-    private const long MaximumFileBytes = 64 * 1024 * 1024;
     private readonly Reader reader;
 
     /// <summary>Hashes and loads the same write-locked file handle, then releases the source file.</summary>
@@ -15,7 +14,7 @@ internal sealed class MmdbCountryReader : IMmdbCountryReader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length is <= 0 or > MaximumFileBytes)
+        if (stream.Length is <= 0 or > GeoIpFileLimits.MaximumDatabaseBytes)
         {
             throw new InvalidDataException("The MMDB file must contain between 1 byte and 64 MiB.");
         }

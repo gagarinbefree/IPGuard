@@ -382,7 +382,8 @@
         "type": "Project",
         "dependencies": {
           "Application": "[0.1.0-preview.local, )",
-          "MaxMind.Db": "[5.2.0, )"
+          "MaxMind.Db": "[5.2.0, )",
+          "System.IO.Hashing": "[10.0.12, )"
         }
       },
       "windows": {
@@ -440,6 +441,12 @@
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.12"
         }
+      },
+      "System.IO.Hashing": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "jDix4bBMYnpZdSPcnY+KDV6ik3SRMzpMKby/bZl/XUwIiflwRNAFZ0oOl61R/pSaveIJ8t1gs2BUlrGsPs/bcg=="
       }
     },
     "net10.0/win-x64": {
