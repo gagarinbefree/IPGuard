@@ -387,7 +387,11 @@
         }
       },
       "windows": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Application": "[0.1.0-preview.local, )",
+          "Domain": "[0.1.0-preview.local, )"
+        }
       },
       "Avalonia.Desktop": {
         "type": "CentralTransitive",

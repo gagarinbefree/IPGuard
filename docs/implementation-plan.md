@@ -4,6 +4,18 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 7a: реальный монитор сети Windows
+
+WindowsNetworkMonitor реализует INetworkSnapshotProvider: три нативные read-only подписки на route/interface/unicast changes для обоих семейств, cached Capture без I/O, постоянная отмена прежнего поколения, сериализованное фоновое чтение и отбрасывание снимков, затронутых изменениями. Dispose отменяет состояние и снимает подписки вне monitor gate. CancelAsync не исполняет consumer callbacks на нативном стеке. Ошибки consumer наблюдаются, нативные roots освобождаются только после успешной отмены, частичные ошибки регистрации/cleanup сохраняются.
+
+TDD: 11 скомпилированных тестов lifecycle сначала упали, затем прошли. Далее 27 тестов classification/native ownership упали на отсутствующем поведении и прошли после реализации. Отдельный регрессионный тест воспроизвёл race: queued initial read стирал notification fault (ожидалась ошибка, фактически null). Fault latch теперь удерживает unknown до явного Refresh. Ещё 4 характеризующих случая проверяют missing handle и запрет native cleanup на callback stack. Всего добавлены 43 unit и 7 интеграционных случаев; все 50 проходят. Интеграционные проверки включают настоящие registration/read/cleanup, controlled отмену collection по всем трём видам изменений и invalidation после возврата реальной MMDB-оценки.
+
+Полный локальный прогон: 537 unit и 94 интеграционных теста прошли; 1 прежний IPv6 loopback получил WSAEACCES, 1 WFP VM-тест явно пропущен. Release-сборка — 0 warnings/errors. Firewall/WFP, маршруты, состояние интерфейсов и VPN рабочей машины не менялись; публичные IP-сервисы не вызывались.
+
+Available означает configured candidate, а не доказанный Internet path. Отсутствующее семейство остаётся Unknown; IPv4-only компьютер пока не проходит полную оценку. Нативные изменения маршрутов/VPN не генерировались на рабочей машине и требуют VM. Public-IP смена за NAT и proxy-only изменения могут не вызвать эти уведомления. Монитор не выдаёт Permit и ещё не подключён к Desktop.
+
+Следующий шаг 7b: read-only диагностика маршрутов, VPN/proxy и compartments, затем scheduler повторных публичных проверок и отзыв устаревших результатов. До доказанного маршрута, оркестрации WFP и испытаний в изолированной VM GUI остаётся оболочкой без сетевой защиты.
+
 ## Этапы и критерии приёмки
 
 | Этап | Работа | Проверяемый результат |
