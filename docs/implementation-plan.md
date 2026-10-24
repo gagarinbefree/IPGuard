@@ -4,6 +4,18 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 7b.1: диагностика локальных маршрутов
+
+Добавлены переносимый контракт IRoutingTableReader, immutable NetworkRoute, RouteDiagnosticsCollector и WindowsRoutingTableReader с реальными GetIpForwardTable2/GetIpInterfaceEntry/FreeMibTable. Собираются IPv4/IPv6 defaults и specific routes, next hops со scope, interface identity/index, обе метрики, connection/default-route flags и remaining lifetime. Новые пакеты и проекты не понадобились; Domain и WFP не изменены.
+
+TDD: 18 тестов collector сначала скомпилированы и упали на отсутствующем поведении, затем прошли. Следующие 17 случаев native adapter упали на stub; первая реализация прошла 16 из них. Тест host bits ожидал InvalidDataException, фактически parser молча нормализовал префикс. После явного сравнения исходного адреса с canonical base address он проходит. Ещё 13 характеризующих unit-случаев покрывают overflow/unknown metrics, mutable IPv6 address, mapped/mixed families, SDK layout, некорректные IPv6 prefixes и отмену во время cleanup. Добавлены 2 интеграционные проверки настоящих read-only API и monitor/collector. Итого 50 новых случаев.
+
+Scope остаётся local caller context с неподтверждённым охватом compartments. Reserved API для переключения/чтения thread compartment не используются. Route/interface reads не являются одной OS transaction; notification может задержаться. Любая ошибка, смена observed generation, invalidation или clock rollback не даёт partial snapshot. Успешные данные не выбирают общий PowerShell exit, не доказывают отсутствие IPv6 и не выдают Permit. GUI по-прежнему не применяет защиту.
+
+Полный локальный прогон: 585 unit и 96 интеграционных тестов прошли; один прежний IPv6 loopback получил WSAEACCES, один нативный WFP VM-тест явно пропущен. Все 50 новых случаев проходят. Locked restore и Release-сборка с 0 warnings/errors прошли. Нативные таблицы только читались; Firewall/WFP, маршруты, VPN и интерфейсы не менялись, публичные сервисы не вызывались.
+
+Следующий шаг 7b.2 — диагностика VPN/proxy с явной неопределённостью и без заявления полного coverage, затем scheduler повторных публичных проверок. Разрешающий режим, installer/recovery и фактическая блокировка остаются зависимыми от проверки маршрута, оркестрации и изолированной VM.
+
 ## Результат шага 7a: реальный монитор сети Windows
 
 WindowsNetworkMonitor реализует INetworkSnapshotProvider: три нативные read-only подписки на route/interface/unicast changes для обоих семейств, cached Capture без I/O, постоянная отмена прежнего поколения, сериализованное фоновое чтение и отбрасывание снимков, затронутых изменениями. Dispose отменяет состояние и снимает подписки вне monitor gate. CancelAsync не исполняет consumer callbacks на нативном стеке. Ошибки consumer наблюдаются, нативные roots освобождаются только после успешной отмены, частичные ошибки регистрации/cleanup сохраняются.
