@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Application/Application.csproj" />
+    <PackageReference Include="MaxMind.Db" />
   </ItemGroup>
 </Project>

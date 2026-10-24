@@ -17,5 +17,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../scripts/Test-WfpVm.ps1" Link="Test-WfpVm.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/GeoIp/*.mmdb" Link="GeoIp/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/GeoIp/README.md" Link="GeoIp/README.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/GeoIp/LICENSE-MIT" Link="GeoIp/LICENSE-MIT" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

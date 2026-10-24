@@ -353,7 +353,8 @@
       "infrastructure": {
         "type": "Project",
         "dependencies": {
-          "Application": "[0.1.0-preview.local, )"
+          "Application": "[0.1.0-preview.local, )",
+          "MaxMind.Db": "[5.2.0, )"
         }
       },
       "windows": {
@@ -396,6 +397,12 @@
         "requested": "[8.4.2, )",
         "resolved": "8.4.2",
         "contentHash": "WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg=="
+      },
+      "MaxMind.Db": {
+        "type": "CentralTransitive",
+        "requested": "[5.2.0, )",
+        "resolved": "5.2.0",
+        "contentHash": "UJ6zwjzV8YZ4YbELCUsK+9lEut5Ea6ks3p8CXEK9hQm8GxhJYrKsVxXcVvZsJ2Nzij1e89dXYrqUH7MCoWdhqg=="
       },
       "Microsoft.Extensions.DependencyInjection": {
         "type": "CentralTransitive",

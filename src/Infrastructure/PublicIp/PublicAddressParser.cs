@@ -57,13 +57,20 @@ internal static class PublicAddressParser
             {
                 return null;
             }
-
-            return Ipv4Excluded.Any(network => network.Contains(address)) ? null : address;
         }
 
-        return address.ScopeId == 0 && Ipv6Allocated.Any(network => network.Contains(address))
-            && !Ipv6Excluded.Any(network => network.Contains(address)) ? address : null;
+        return IsCandidate(address) ? address : null;
     }
+
+    /// <summary>Shares the reviewed public-unicast classification with local GeoIP lookup.</summary>
+    internal static bool IsCandidate(IPAddress address) => address.AddressFamily switch
+    {
+        AddressFamily.InterNetwork => !Ipv4Excluded.Any(network => network.Contains(address)),
+        AddressFamily.InterNetworkV6 => address.ScopeId == 0 && !address.IsIPv4MappedToIPv6
+            && Ipv6Allocated.Any(network => network.Contains(address))
+            && !Ipv6Excluded.Any(network => network.Contains(address)),
+        _ => false
+    };
 
     /// <summary>Parses a reviewed space-separated range snapshot once, without runtime registry downloads.</summary>
     private static IPNetwork[] Networks(string ranges) => ranges.Split(' ').Select(IPNetwork.Parse).ToArray();
