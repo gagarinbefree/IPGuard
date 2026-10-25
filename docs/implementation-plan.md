@@ -4,6 +4,20 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 7c.1: периодические локальные диагностики
+
+NetworkDiagnosticsCollector объединяет existing RouteDiagnosticsCollector, proxy и RAS readers. Общие generation/latch, start-to-completion interval и domain-owned exclusive age проверяются после каждой границы; список копируется, частичные результаты не публикуются. Ошибки, malformed/null results, network change, expiry и rollback имеют явные исходы. Unknown family остаётся диагностикой, не eligibility.
+
+NetworkDiagnosticsMonitor выполняет initial/periodic/manual collection на одном background worker с coalescing очередью. Перепроверка сначала отзывает старые observations; late results отменённого reader отбрасываются. Independent elapsed deadline вооружается до collection, сетевой latch отзывает published observation, Capture заново проверяет cached generation, wall clock и elapsed age. Callback failures наблюдаются и сохраняются. Dispose не ждёт непрерываемый native read или consumer callback; Completion позволяет дождаться reader. Собственные классы не наследуются, platform dependencies остаются за существующими interfaces. FakeTimeProvider 10.9.0 добавлен только в UnitTests для deterministic timers.
+
+TDD: 31 collector-случай сначала упал на скомпилированном stub, затем прошёл; 18 monitor-случаев аналогично прошли Red → Green. Дополнительные 2 regression-случая воспроизвели NullReferenceException при reentrant refresh/dispose из clock boundary и после исправления прошли. Добавлены 1 характеризующая проверка sub-millisecond timer и 1 safe integration тест композиции настоящих Windows readers. Итого 52 новых unit и 1 integration — все проходят.
+
+Полный локальный прогон: 691 unit и 99 integration прошли; прежний IPv6 loopback получил WSAEACCES, один gated WFP VM-тест пропущен. Locked restore, Release build (0 warnings/errors), whitespace check прошли. Новый integration test, как и reader test, считает только точный documented missing-user-settings error явным Failed/unavailable без snapshot. Сетевые настройки, VPN, Firewall/WFP не менялись; внешние HTTPS sources не вызывались.
+
+Срок/отмена — lifetime локальных данных, не enforcement. Timer callbacks не дают real-time guarantees; перед использованием нужны оба tokens и freshness. Sequential native reads не atomic, нет доказанного общего выхода PowerShell. GUI, публичные IP/GeoIP и WFP пока не используют этот loop.
+
+Следующий шаг 7c.2: объединить периодическую оценку public IP/GeoIP с local diagnostics в общем сценарии, с единым outer generation/interval и отзывом устаревших результатов; проверить NAT-only смену IP, смену страны и ошибки источников без локального уведомления. Затем нужны GUI/CLI, policy orchestration, installer/recovery и изолированная VM для реального enforcement. Permit по диагностическим observations не выдаётся.
+
 ## Результат шага 7b.2: наблюдения proxy и RAS VPN
 
 Добавлены IProxySettingsReader/IRemoteAccessReader, immutable модели и Windows-адаптеры реальных WinHTTP/RAS API. Proxy settings разделены на current-user active connection, legacy WinHTTP registry defaults и current-process environment. Результат содержит только flags, без proxy/PAC/credentials. RAS возвращает provider-visible связи, optional correlation ID, положительный VPN device marker, состояние, connection error и raw codes; имена/телефоны/endpoints исключены. Нативные дескрипторы заимствованы и не закрываются. GlobalFree проверяется для всех уникальных proxy allocations; первичные/cleanup ошибки сохраняются.
@@ -14,7 +28,7 @@ TDD: 19 скомпилированных proxy-случаев сначала у�
 
 Пустой RAS list не доказывает отсутствие VPN, false proxy flags не доказывают прямой PowerShell exit, Connected не доказывает общий маршрут. Dormant/reconnecting/unknown и connection error сохраняются отдельно. Reader observations пока не привязаны к поколению/сроку и не подключены к GUI. Реальные активные VPN transitions, session/per-app proxy и third-party VPN coverage остаются непроверенными; обычный integration test допускает только документированный missing-user-settings error как unavailable outcome, без подмены empty configuration.
 
-Следующий шаг 7c: общий цикл диагностики/повторных проверок с привязкой новых наблюдений к сети и сроку, периодическим перечитыванием proxy/RAS и отменой устаревших результатов. Затем нужны GUI/CLI, orchestration, installer/recovery и изолированная VM для реального enforcement. Этот шаг не выдаёт Permit.
+Периодическое перечитывание и lifetime локальных наблюдений реализованы в шаге 7c.1 выше; public IP/GeoIP assessment ещё предстоит объединить с этим циклом. Этот шаг не выдаёт Permit.
 
 ## Результат шага 7b.1: диагностика локальных маршрутов
 
