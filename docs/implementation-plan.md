@@ -4,6 +4,18 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 7b.2: наблюдения proxy и RAS VPN
+
+Добавлены IProxySettingsReader/IRemoteAccessReader, immutable модели и Windows-адаптеры реальных WinHTTP/RAS API. Proxy settings разделены на current-user active connection, legacy WinHTTP registry defaults и current-process environment. Результат содержит только flags, без proxy/PAC/credentials. RAS возвращает provider-visible связи, optional correlation ID, положительный VPN device marker, состояние, connection error и raw codes; имена/телефоны/endpoints исключены. Нативные дескрипторы заимствованы и не закрываются. GlobalFree проверяется для всех уникальных proxy allocations; первичные/cleanup ошибки сохраняются.
+
+TDD: 19 скомпилированных proxy-случаев сначала упали на stub, затем прошли. 31 RAS-случай также прошёл Red; первая реализация дала 30 Green, а один тест неверно предполагал наследование InvalidDataException от IOException. Уточнены два строгих ожидания: malformed allocation — InvalidDataException, исчерпание попыток при churn — IOException. После исправления все проходят. Ещё 4 характеризующих unit-случая проверили SDK layout, cleanup failure после успеха, environment failure и свежие данные повторного read. Добавлены 2 safe integration проверки реальных native reads. Итого 56 новых случаев.
+
+Полный локальный прогон: 639 unit и 98 интеграционных тестов прошли; прежний IPv6 loopback получил WSAEACCES, один нативный WFP VM-тест пропущен. Все новые случаи проходят. Locked restore и Release-сборка (0 warnings/errors) прошли. Нативные настройки только читались; proxy, маршруты, VPN и Firewall/WFP не изменялись, PAC/WPAD и публичные сервисы не вызывались.
+
+Пустой RAS list не доказывает отсутствие VPN, false proxy flags не доказывают прямой PowerShell exit, Connected не доказывает общий маршрут. Dormant/reconnecting/unknown и connection error сохраняются отдельно. Reader observations пока не привязаны к поколению/сроку и не подключены к GUI. Реальные активные VPN transitions, session/per-app proxy и third-party VPN coverage остаются непроверенными; обычный integration test допускает только документированный missing-user-settings error как unavailable outcome, без подмены empty configuration.
+
+Следующий шаг 7c: общий цикл диагностики/повторных проверок с привязкой новых наблюдений к сети и сроку, периодическим перечитыванием proxy/RAS и отменой устаревших результатов. Затем нужны GUI/CLI, orchestration, installer/recovery и изолированная VM для реального enforcement. Этот шаг не выдаёт Permit.
+
 ## Результат шага 7b.1: диагностика локальных маршрутов
 
 Добавлены переносимый контракт IRoutingTableReader, immutable NetworkRoute, RouteDiagnosticsCollector и WindowsRoutingTableReader с реальными GetIpForwardTable2/GetIpInterfaceEntry/FreeMibTable. Собираются IPv4/IPv6 defaults и specific routes, next hops со scope, interface identity/index, обе метрики, connection/default-route flags и remaining lifetime. Новые пакеты и проекты не понадобились; Domain и WFP не изменены.

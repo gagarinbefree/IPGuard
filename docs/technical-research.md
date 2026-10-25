@@ -1,12 +1,26 @@
 # Техническое исследование IPGuard
 
-Дата проверки источников: 22–24 октября 2026 года.
+Дата проверки источников: 22–25 октября 2026 года.
 
 IPGuard будет настольным приложением с треем на .NET 10, Avalonia, Avalonia.Markup.Declarative и CommunityToolkit.Mvvm. Собственный Windows Service и драйвер ядра исключены. Для прототипа выбран пользовательский API WFP. Пригодность схемы для выпуска зависит от испытаний, перечисленных в [программе проверок VM](vm-validation.md).
 
 Основной риск — различие между наблюдением адреса и обеспечением маршрута: несколько HTTPS-ответов с адресом США не доказывают, что произвольное соединение PowerShell использует тот же внешний выход. При отсутствии достаточного подтверждения решение остаётся блокирующим. Геолокация адреса удалённого сервера в принятии решения не участвует.
 
-## Мониторинг и диагностика Windows — 24 октября 2026 года
+## Мониторинг и диагностика Windows — 24–25 октября 2026 года
+
+### Proxy и RAS, шаг 7b.2
+
+WinHttpGetIEProxyConfigForCurrentUser возвращает active-connection settings текущего пользователя, включая auto-detect/PAC; missing settings — ошибка, не Direct. WinHttpGetDefaultProxyConfiguration читает legacy registry defaults, которые не отражают session overrides. В адаптере эти данные не смешиваются с текущими HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY. Сохраняются только flags; proxy/PAC/bypass strings не декодируются в результат. PAC/WPAD не вызываются. [User proxy](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetieproxyconfigforcurrentuser), [WinHTTP defaults](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetdefaultproxyconfiguration).
+
+Все возвращённые string pointers освобождаются GlobalFree, включая partial native results и cancellation. Попытки cleanup продолжаются после ошибки отдельного allocation; alias pointers не освобождаются дважды. Ненулевой return GlobalFree — failure; primary/cleanup errors агрегируются, результата нет. Неудачный GlobalFree не объявляется успешным освобождением; возможная оставшаяся память не переиспользуется адаптером. [GlobalFree](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalfree).
+
+RasEnumConnectionsW перечисляет active RAS связи, но не все реализации VPN; соединение может ещё не попасть в enumeration до успешного подключения. Для каждого заимствованного handle выполняется RasGetConnectStatusW; API error и status.dwError различаются. Адаптер ничего не dial/hang-up и не закрывает HRASCONN. Device type "vpn" — только положительная классификация этой RAS записи. Empty list не превращается в NoVPN. Correlation GUID сохраняется при наличии; RAS LUID относится к logon session, не NET_LUID интерфейса, и для route join не используется. [Enumeration](https://learn.microsoft.com/en-us/windows/win32/api/ras/nf-ras-rasenumconnectionsw), [Status](https://learn.microsoft.com/en-us/windows/win32/api/ras/nf-ras-rasgetconnectstatusw), [RASCONN](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/aa376725%28v%3Dvs.85%29).
+
+При RASCS_Connected субсостояния IKEv2 Dormant и Reconnecting не объявляются Connected в диагностической модели. Unknown raw values сохраняются, connection error даёт Failed. RASCSS_Reconnected считается Connected после завершения MOBIKE, при этом исходный substate code сохраняется. [RASCONNSUBSTATE](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/dd408103%28v%3Dvs.85%29), [RASCONNSTATUS](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/aa376728%28v%3Dvs.85%29).
+
+Локальный clang-cl probe Windows SDK 10.0.26100.0 x64 подтвердил RAS pack=4: RASCONNW 1388 bytes, handle offset 4, device type 526 (17 UTF-16 code units), correlation GUID 1372; RASCONNSTATUSW 608 bytes, substate offset 604. WinHTTP user struct — 32 bytes, default — 24, первые pointer members имеют offset 8 после четырёхбайтового BOOL/DWORD. Полные native buffers зарезервированы; private phonebook/phone/endpoint fields не представлены в результатах. Эти значения защищены layout-тестом; C++ не нужен для сборки проекта.
+
+RAS allocation ограничен 1024 entries и четырьмя attempts, рост/ошибочные размеры проверяются до обхода; все caller-owned buffers освобождаются в finally. Это пределы нашего adapter, не Windows. OS calls синхронны и не прерываются CancellationToken; отмена проверяется на границах. Настройки, enumeration и status не являются одной транзакцией или доказанным network generation. Пока это отдельные readers; общий interval/generation-bound цикл ещё не реализован. Proxy-only изменения и per-app/session overrides могут не дать network notification. Settings/Connected — не подтверждение общего public exit или WFP enforcement; настоящие VPN disconnect/reconnect остаются испытаниями VM.
 
 ### Локальная таблица маршрутов, шаг 7b.1
 
