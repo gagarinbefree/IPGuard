@@ -4,6 +4,20 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 8a: блокирующая координация и финальная сверка
+
+Добавлены IBlockPolicy, INetworkDiagnosticsReader, BlockProtectionController и immutable ProtectionSnapshot. Контроллер разделяет phase, last-observed baseline objects/time, geography и причину отсутствия разрешения. Reconcile сериализует ensure/readback, отзывает старый inspection и запрашивает свежую диагностику. Ошибки/отмена/malformed backend results не возвращают прошлую успешную проверку. US eligibility остаётся RouteUnverified, отрицательная geography — AddressRejected; permit/uninstall API у контроллера отсутствует.
+
+Stop сразу делает контроллер terminal, ждёт завершения уже выполняющегося блокирующего действия и запускает одну собственную финальную ensure/readback без удаления baseline. Отмена ожидания вызывающего не отменяет эту работу. Readback выполняется даже после ensure failure, обе ошибки сохраняются. Диагностический reader принадлежит хосту; контроллер не создаёт второй scheduler и не владеет lifetime monitor.
+
+WindowsBlockPolicy использует реальные WfpBlockPolicy.Install и новый InspectBlockOnly на background tasks. Strict read-only transaction сверяет enabled required blocks и весь related namespace через существующий schema/ownership preflight; related Permit или unknown filter дают Unknown. Ничего не удаляется. WfpBaselineInspection сохраняет исходное exception, а не только message. Отмена после native commit не откатывает постоянную блокировку; выполняющийся native call не прерывается.
+
+TDD: 40 новых unit случаев сначала упали на скомпилированных stubs и затем прошли. Дополнительный regression воспроизвёл late diagnostic failure после начала Stop; запись этого результата теперь защищена terminal state. Два safe integration случая объединяют настоящий coordinator, Windows adapter и transactions с in-memory IWfpSession: baseline остаётся, existing Permit не удаляется и не объявляется безопасным. Итого 41 новый unit и 2 integration; все проходят. Полный локальный прогон: 777 unit и 104 integration прошли; прежний IPv6 loopback — WSAEACCES, один gated native WFP VM-тест пропущен. Release build, locked restore и whitespace check прошли.
+
+GUI по-прежнему не вызывает native policy backend, на рабочей машине WFP не перечислялся и не изменялся. Present — observation собственных объектов в завершённой транзакции, не доказанная блокировка пакетов, boot coverage или teardown существующих connections. Контроллер block-only; single owner across processes, privileged helper/IPC, зависание/авария, PowerShell discovery, периодическая сверка политики и UI hosting ещё не реализованы.
+
+Следующий шаг 8b: определить единственного владельца и привилегированный hosting без Windows Service, интегрировать lifetime диагностики/политики и запрос выхода. До выдачи Permit нужны enforced route model и isolated VM results; GUI/CLI должны показывать только фактически доступное состояние. Затем installer/recovery и полная VM-матрица.
+
 ## Результат шага 7c.2: общий цикл local/public IP/GeoIP
 
 NetworkCheckCollector объединяет существующие local collector и NetworkAssessor. Один outer generation/latch и interval начинаются до local reads; child intervals должны помещаться внутри него, а HTTP collection не перезапускает возраст. Итоговая PublicIpPolicy повторно оценивает обе семьи на полном интервале. Completed может содержать отрицательное решение по стране/источникам. При operational failure, network change, rollback или expiry Snapshot отсутствует; оригинальный Assessment сохраняет source/database/lookup diagnostics и не заменяет outer evidence.
@@ -16,7 +30,7 @@ TDD: 30 новых collector и 9 monitor случаев прошли compiled R
 
 Eligibility по US остаётся только EligibleForRouteValidation. Common exit, enforcement и судьба установленных соединений не подтверждены этим циклом. GUI пока не создаёт collectors/monitor, сетевых ограничений нет.
 
-Следующий этап 8: определить владельца fail-closed состояния и общую orchestration для диагностики/WFP, обработать lifecycle/ошибки/привилегии без Windows Service. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем подключить GUI/CLI к общему состоянию и ручной перепроверке, реализовать installer/recovery и итоговую матрицу VM.
+Блокирующая координация реализована в шаге 8a выше; privileges, единственный owner и полный runtime lifecycle остаются шагом 8b. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем нужны GUI/CLI, installer/recovery и итоговая матрица VM.
 
 ## Результат шага 7c.1: периодические локальные диагностики
 

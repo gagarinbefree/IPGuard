@@ -65,12 +65,22 @@ public sealed class WfpBlockPolicy
 
     /// <summary>Reads object presence without interpreting it as verified traffic blocking.</summary>
     public WfpBaselineInspection Inspect(IEnumerable<string> executablePaths)
+        => Inspect(executablePaths, blockOnly: false);
+
+    /// <summary>Reads exact required blocks and rejects any related permit or unrecognized object without deleting policy.</summary>
+    public WfpBaselineInspection InspectBlockOnly(IEnumerable<string> executablePaths)
+        => Inspect(executablePaths, blockOnly: true);
+
+    /// <summary>Uses one completed read transaction for required objects and optional exclusive-namespace validation.</summary>
+    private WfpBaselineInspection Inspect(IEnumerable<string> executablePaths, bool blockOnly)
     {
         var paths = WfpPowerShellScope.ValidatePaths(executablePaths);
         int expected = paths.Count * WfpPolicyIds.Layers.Length;
         try
         {
             using var session = _openSession();
+            if (blockOnly && session.IsDynamic)
+                throw new InvalidOperationException("Block-only inspection requires a non-dynamic session.");
             var rules = WfpPowerShellScope.CreateRules(session, paths);
             expected = rules.Count;
             bool ownerPresent = false;
@@ -85,13 +95,15 @@ public sealed class WfpBlockPolicy
                         matching++;
                     }
                 }
+                if (blockOnly && session.GetBlocksForUninstall() is null)
+                    throw new InvalidDataException("The block-only namespace inspection returned no result.");
             });
             var state = ownerPresent && matching == expected ? WfpBaselineState.Present : WfpBaselineState.Incomplete;
             return new WfpBaselineInspection(state, expected, matching);
         }
         catch (Exception error)
         {
-            return new WfpBaselineInspection(WfpBaselineState.Unknown, expected, 0, error.Message);
+            return new WfpBaselineInspection(WfpBaselineState.Unknown, expected, 0, error.Message, error);
         }
     }
 }

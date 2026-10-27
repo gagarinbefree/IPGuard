@@ -15,12 +15,13 @@ public enum WfpBaselineState
 public sealed class WfpBaselineInspection
 {
     /// <summary>Creates a diagnostic result for one completed or failed snapshot.</summary>
-    public WfpBaselineInspection(WfpBaselineState state, int expectedRules, int matchingRules, string? error = null)
+    public WfpBaselineInspection(WfpBaselineState state, int expectedRules, int matchingRules, string? error = null, Exception? failure = null)
     {
         State = state;
         ExpectedRules = expectedRules;
         MatchingRules = matchingRules;
         Error = error;
+        Failure = failure;
     }
 
     /// <summary>Gets the confidence in the stored baseline's presence.</summary>
@@ -34,4 +35,7 @@ public sealed class WfpBaselineInspection
 
     /// <summary>Gets the read failure when the result is unknown.</summary>
     public string? Error { get; }
+
+    /// <summary>Gets the original read, transaction, or session cleanup failure when available.</summary>
+    public Exception? Failure { get; }
 }

@@ -187,8 +187,57 @@ public sealed class WfpBlockPolicyTests
         Assert.Empty(session.Stored);
     }
 
+    /// <summary>Strict runtime readback uses one read transaction and never deletes baseline objects.</summary>
+    [Fact]
+    public void InspectBlockOnlyReadsEntireOwnedNamespace()
+    {
+        var session = new RecordingSession();
+        var policy = new WfpBlockPolicy(() => session);
+        policy.Install([@"C:\Tools\pwsh.exe"]);
+        session.Events.Clear();
+        var result = policy.InspectBlockOnly([@"C:\Tools\pwsh.exe"]);
+        Assert.Equal(WfpBaselineState.Present, result.State);
+        Assert.Contains("scan-blocks", session.Events);
+        Assert.Contains("begin-read", session.Events);
+        Assert.DoesNotContain("begin-write", session.Events);
+        Assert.Equal(4, session.Stored.Count);
+    }
+
+    /// <summary>Potential permits or unknown related objects invalidate an otherwise complete baseline report.</summary>
+    [Theory]
+    [InlineData("scan-blocks")]
+    [InlineData("read-2")]
+    [InlineData("commit")]
+    [InlineData("dispose")]
+    public void InspectBlockOnlyRejectsIncompleteSnapshot(string failure)
+    {
+        var session = new RecordingSession();
+        var policy = new WfpBlockPolicy(() => session);
+        policy.Install([@"C:\Tools\pwsh.exe"]);
+        session.FailAt = failure;
+        var result = policy.InspectBlockOnly([@"C:\Tools\pwsh.exe"]);
+        Assert.Equal(WfpBaselineState.Unknown, result.State);
+        Assert.Equal(0, result.MatchingRules);
+        Assert.Contains(failure, result.Error);
+        Assert.Equal(4, session.Stored.Count);
+    }
+
+    /// <summary>A missing owner or required block remains incomplete even when no unexpected filters exist.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InspectBlockOnlyRequiresEnabledCompleteBaseline(bool missingOwner)
+    {
+        var session = new RecordingSession();
+        var policy = new WfpBlockPolicy(() => session);
+        policy.Install([@"C:\Tools\pwsh.exe"]);
+        if (missingOwner) session.OwnerPresent = false;
+        else session.Stored.Remove(session.Stored.Keys.First());
+        Assert.Equal(WfpBaselineState.Incomplete, policy.InspectBlockOnly([@"C:\Tools\pwsh.exe"]).State);
+    }
+
     /// <summary>Models staged changes and injects operating-system failures without native calls.</summary>
-    private sealed class RecordingSession : IWfpSession
+    internal sealed class RecordingSession : IWfpSession
     {
         private Dictionary<Guid, WfpBlockRule> _pending = [];
         private bool _pendingOwner;
@@ -202,7 +251,7 @@ public sealed class WfpBlockPolicyTests
         public bool HasPolicyContainers() => throw new InvalidOperationException("This fixture does not run VM namespace checks.");
 
         /// <inheritdoc />
-        public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall() => throw new InvalidOperationException("This fixture does not uninstall policy.");
+        public IReadOnlyList<WfpBlockRule> GetBlocksForUninstall() { Record("scan-blocks"); return _pending.Values.ToArray(); }
 
         /// <inheritdoc />
         public void RemoveBlock(WfpBlockRule rule) => throw new InvalidOperationException("Baseline installation must not remove blocks.");
@@ -227,6 +276,9 @@ public sealed class WfpBlockPolicyTests
 
         /// <summary>Gets or sets whether matching policy containers exist.</summary>
         public bool OwnerPresent { get; set; }
+
+        /// <summary>Gets or sets a controlled hook before one simulated native operation.</summary>
+        internal Action<string>? BeforeOperation { get; set; }
 
         /// <inheritdoc />
         public byte[] GetApplicationId(string executablePath)
@@ -303,6 +355,7 @@ public sealed class WfpBlockPolicyTests
         private void Record(string operation)
         {
             Events.Add(operation);
+            BeforeOperation?.Invoke(operation);
             if (FailAt == operation)
             {
                 throw new Win32Exception(5, $"{operation} failed");

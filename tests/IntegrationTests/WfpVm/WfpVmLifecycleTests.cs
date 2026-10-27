@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using IPGuard.Application.Network;
+using IPGuard.Application.Protection;
 using System.Text;
 using IPGuard.Windows.Filtering;
 using Xunit;
@@ -8,6 +10,49 @@ namespace IntegrationTests.WfpVm;
 /// <summary>Checks the VM scenario with in-memory sessions, without native WFP operations.</summary>
 public sealed class WfpVmLifecycleTests
 {
+    /// <summary>The application coordinator composes the real Windows adapter and transactions without changing host policy.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BlockControllerKeepsBaselineAndRejectsExistingPermits(bool existingPermit)
+    {
+        var state = new PolicyState { Permit = existingPermit };
+        var backend = new WindowsBlockPolicy([@"C:\VmResults\powershell.exe"], new WfpBlockPolicy(() => new FakeSession(state, false)));
+        var controller = new BlockProtectionController(backend, new NoDiagnostics());
+        var running = await controller.ReconcileAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(existingPermit ? ProtectionReason.PolicyUnavailable : ProtectionReason.AssessmentUnavailable, running.Reason);
+        var stopped = await controller.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(ProtectionPhase.Stopped, stopped.Phase);
+        Assert.Equal(existingPermit ? ProtectionReason.PolicyUnavailable : ProtectionReason.Stopped, stopped.Reason);
+        Assert.Equal(4, state.Blocks.Count);
+        Assert.True(state.Provider);
+        Assert.True(state.SubLayer);
+        Assert.Equal(existingPermit, state.Permit);
+        Assert.Equal(0, state.CreatedPermits);
+        Assert.Equal(0, state.Removals);
+        Assert.DoesNotContain("remove", state.Events);
+        Assert.DoesNotContain("permit-close", state.Events);
+    }
+
+    /// <summary>Represents an unavailable host-owned diagnostic reader without starting background or network work.</summary>
+    private sealed class NoDiagnostics : INetworkDiagnosticsReader
+    {
+        /// <summary>Returns no current geographic evidence.</summary>
+        public NetworkDiagnosticsObservation? Capture() => null;
+
+        /// <summary>Accepts refresh without scheduling external work in this safe composition test.</summary>
+        public void Refresh() { }
+
+        /// <summary>Gets an unavailable diagnostic outcome.</summary>
+        public NetworkDiagnosticsStatus? LastStatus => NetworkDiagnosticsStatus.NetworkUnavailable;
+
+        /// <summary>Gets no previous failed attempt in this scenario.</summary>
+        public NetworkDiagnosticsResult? LastFailure => null;
+
+        /// <summary>Gets no operational error from the inactive reader.</summary>
+        public Exception? LastError => null;
+    }
+
     /// <summary>The successful object round trip closes permits before removing the verified baseline.</summary>
     [Fact]
     public void Run_CompletesTheObjectRoundTrip()

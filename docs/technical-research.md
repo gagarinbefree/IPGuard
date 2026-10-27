@@ -1,10 +1,20 @@
 # Техническое исследование IPGuard
 
-Дата проверки источников: 22–25 октября 2026 года.
+Дата проверки источников: 22–27 октября 2026 года.
 
 IPGuard будет настольным приложением с треем на .NET 10, Avalonia, Avalonia.Markup.Declarative и CommunityToolkit.Mvvm. Собственный Windows Service и драйвер ядра исключены. Для прототипа выбран пользовательский API WFP. Пригодность схемы для выпуска зависит от испытаний, перечисленных в [программе проверок VM](vm-validation.md).
 
 Основной риск — различие между наблюдением адреса и обеспечением маршрута: несколько HTTPS-ответов с адресом США не доказывают, что произвольное соединение PowerShell использует тот же внешний выход. При отсутствии достаточного подтверждения решение остаётся блокирующим. Геолокация адреса удалённого сервера в принятии решения не участвует.
+
+## Блокирующая координация — 27 октября 2026 года
+
+WFP поддерживает read-only и read/write transactions с ACID semantics. Строгая runtime-инспекция может использовать существующий read-only ownership/schema preflight, не вызывая удаления: все его нативные операции — Get/Enum. Для actual uninstall по-прежнему нужна одна write transaction, содержащая проверку и удаление. Проверка наличия отдельных Block не доказывает отсутствие более приоритетных Permit в том же sublayer; strict inspection сверяет также related namespace. [Object Management](https://learn.microsoft.com/en-us/windows/win32/fwp/object-management), [Transaction Begin](https://learn.microsoft.com/en-us/windows/win32/api/fwpmu/nf-fwpmu-fwpmtransactionbegin0), [Filter Arbitration](https://learn.microsoft.com/en-us/windows/win32/fwp/filter-arbitration).
+
+Access checks для open, read/write transactions, Get/Enum и Add различаются; успешное открытие сессии не доказывает право установить фильтры. Windows adapter не требует безусловный admin boolean и не меняет ACL: фактические WFP access errors сохраняются. Автоматическое повышение GUI и новый IPC не добавлены без выбранного/проверенного runtime design. [Access Control](https://learn.microsoft.com/en-us/windows/win32/fwp/access-control).
+
+Application controller умеет только persistent baseline ensure/readback и terminal reconciliation. Он не открывает динамическую session и не вызывает prototype Permit/Uninstall. Stop не отменяет уже выполняющийся native write; ждёт его и проводит собственную финальную сверку. Отмена ожидания UI не прекращает эту работу. Хост должен отдельно остановить diagnostics, организовать periodic policy checks и single process owner. Ошибки/зависания BFE, права реального runtime account, загрузка Windows, process-crash и actual traffic остаются VM-вопросами. Last-observed objects/time намеренно не называются доказанной effective blocking.
+
+Новые тесты используют in-memory WFP boundary, а не настоящие native writes/enum. Existing Permit сохраняется как conflict; forced cleanup отсутствует. После остановки географические snapshots не используются, late results не возвращают Running state. Финальные ensure/readback errors агрегируются, а retired diagnostic error не загрязняет завершённую сверку политики.
 
 ## Мониторинг и диагностика Windows — 24–27 октября 2026 года
 

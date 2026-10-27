@@ -32,7 +32,7 @@ public interface IWfpSession : IDisposable
     void AddPermitFor(WfpBlockRule baseline);
 
     /// <summary>Validates existing containers and every related filter before returning removable baseline blocks.</summary>
-    /// <remarks>Call within an explicit write transaction. Rejects active permits and unknown or conflicting objects; does not resolve executable paths.</remarks>
+    /// <remarks>Call within an explicit transaction; deletion requires that same transaction to be writable. This read-only preflight also supports block-only inspection. Rejects active permits and unknown or conflicting objects; does not resolve executable paths.</remarks>
     IReadOnlyList<WfpBlockRule> GetBlocksForUninstall();
 
     /// <summary>Deletes a verified baseline block if present and confirms its absence.</summary>

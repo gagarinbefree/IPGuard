@@ -3,7 +3,7 @@ using System.Threading.Channels;
 namespace IPGuard.Application.Network;
 
 /// <summary>Publishes bounded local or full observations through one serial background refresh loop.</summary>
-public sealed class NetworkDiagnosticsMonitor : IDisposable
+public sealed class NetworkDiagnosticsMonitor : INetworkDiagnosticsReader, IDisposable
 {
     private readonly object gate = new();
     private readonly INetworkDiagnosticsSource collector;
