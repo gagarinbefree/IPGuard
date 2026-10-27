@@ -4,6 +4,18 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 8b.2: локальный IPC transport
+
+Реализован WindowsControlPipe: GUI-owned one-shot listener с уникальным именем, FirstPipeInstance и protected descriptor GUI user/logon SID плюс data-only Administrators ACE. Network SID получает deny, клиент не получает CreateNewInstance. CurrentUserOnly не используется, поскольку он требует одинакового elevation level. Нельзя также предполагать общий logon SID linked UAC tokens: client читает token доверенного GUI process с TOKEN_QUERY и требует тот же user account; protected ACL разрешает elevated client's Administrators SID. Client и server проверяют actual descriptor/peer PID, удерживают доверенный Process и отвергают exited peer до ожидания соединения. Client credentials ограничены Identification; фактический уровень подтверждён safe native test.
+
+Фиксированный 18-byte version handshake и общий timeout 1 ms–1 minute не допускают unbounded frame allocation. Truncation, unsupported version, stalled input, cancellation, collision и wrong peer не возвращают stream. После success stream принадлежит caller; listener Dispose не закрывает уже переданный stream. Failed authentication закрывает listener, автоматического reconnect нет. Native token/ACL/process reads синхронны; будущий host должен перенести их с UI thread и отдельно отслеживать exit/hang.
+
+TDD: 25 unit и 9 integration случаев сначала упали на compiled stubs. Первые unit прошли, native composition обнаружила, что WindowsIdentity.Groups исключает logon SID. Для GetTokenInformation(TokenLogonSid) сначала добавлены 9 падающих parser-тестов, затем bounded native read и проверка полного owned buffer. Дополнительный regression воспроизвёл ожидание timeout вместо раннего отказа для exited peer; исправлена initial liveness check. После исследования linked logon sessions два ACL-теста упали на старой схеме; data-only Administrators ACE и exact descriptor validation исправлены. Четыре характеризующих случая проверяют timeout bounds. Всего 39 новых unit и 10 integration — проходят, включая real child process, wrong PID с обеих сторон и Identification.
+
+Полный локальный прогон: 844 unit и 118 integration прошли; прежний IPv6 loopback получил WSAEACCES, один gated native WFP VM-тест пропущен. Locked restore, Release build (0 warnings/errors), solution whitespace verification и git diff check прошли. На рабочей машине не запускался UAC, не открывался production policy mutex, не перечислялся и не менялся WFP; реальные proxy/VPN/routes не менялись.
+
+UAC startup, privileged helper entry point, bounded command protocol, composition diagnostics/controller/owner и shutdown при disconnect остаются следующим шагом 8b.3. Текущий transport не принимает команды и не вызывает WFP. Mixed-elevation pair, другой logon и remote-access rejection требуют isolated VM validation; обычный успешный CI не подтверждает эти сценарии. Desktop остаётся shell без подключения backend. Enforced route, installer/boot recovery, PowerShell discovery, periodic policy inspection и GUI/CLI также ещё не завершены.
+
 ## Результат шага 8b.1: защищённый единственный владелец
 
 WindowsPolicyOwner координирует cooperating processes через фиксированный Global mutex с protected DACL и owner Administrators. Standard token не проходит public prerequisite; существующий unsafe descriptor отвергается без изменения. Захват, удержание и освобождение выполняются на одном dedicated thread; contention даёт null без ожидания, abandonment сохраняется как диагностика и требует новой сверки baseline. Отмена acquisition ждёт cleanup, но после handoff не становится скрытым lifetime token. Dispose отзывает Lost до native release; reentrant consumer callback не блокирует освобождение. Native/cleanup failures сохраняются, повторный Dispose не повторяет release.
@@ -14,7 +26,7 @@ TDD: 28 новых unit случаев упали на скомпилирова�
 
 Полный локальный прогон: 805 unit и 108 integration прошли; прежний IPv6 loopback получил WSAEACCES, один gated native WFP VM-тест пропущен. Locked restore и Release build прошли с 0 warnings/errors. Avalonia build telemetry отключена штатной process environment variable, поскольку sandbox не разрешает запись её log вне workspace. Solution-level formatter не смог подключиться к build-host pipe; whitespace verification изменённых файлов в folder mode прошла. Реальные Firewall/WFP, VPN, proxy и routes не менялись; production mutex не открывался.
 
-Следующий шаг 8b.2: privileged helper hosting без Windows Service, аутентифицированный IPC, запуск/выход и composition diagnostics/controller/owner. До подключения разрешений нужны enforced route model и isolated VM results. GUI по-прежнему shell без native policy backend; новый ownership не подключён к startup и prototype permit API. Hang handling, installer/recovery, PowerShell discovery, periodic policy inspection, GUI/CLI и полная VM-матрица остаются незавершёнными.
+IPC transport реализован в шаге 8b.2 выше; privileged helper hosting без Windows Service, запуск/выход и composition diagnostics/controller/owner остаются шагом 8b.3. До подключения разрешений нужны enforced route model и isolated VM results. GUI по-прежнему shell без native policy backend; новый ownership не подключён к startup и prototype permit API. Hang handling, installer/recovery, PowerShell discovery, periodic policy inspection, GUI/CLI и полная VM-матрица остаются незавершёнными.
 
 ## Результат шага 8a: блокирующая координация и финальная сверка
 
@@ -28,7 +40,7 @@ TDD: 40 новых unit случаев сначала упали на скомп
 
 GUI по-прежнему не вызывает native policy backend, на рабочей машине WFP не перечислялся и не изменялся. Present — observation собственных объектов в завершённой транзакции, не доказанная блокировка пакетов, boot coverage или teardown существующих connections. Контроллер block-only; single owner across processes, privileged helper/IPC, зависание/авария, PowerShell discovery, периодическая сверка политики и UI hosting ещё не реализованы.
 
-Единственный owner и проверка prerequisite реализованы в шаге 8b.1 выше; privileged hosting, lifetime диагностики/политики и запрос выхода остаются шагом 8b.2. До выдачи Permit нужны enforced route model и isolated VM results; GUI/CLI должны показывать только фактически доступное состояние. Затем installer/recovery и полная VM-матрица.
+Единственный owner и проверка prerequisite реализованы в шаге 8b.1, IPC transport — в шаге 8b.2 выше; privileged hosting, lifetime диагностики/политики и запрос выхода остаются шагом 8b.3. До выдачи Permit нужны enforced route model и isolated VM results; GUI/CLI должны показывать только фактически доступное состояние. Затем installer/recovery и полная VM-матрица.
 
 ## Результат шага 7c.2: общий цикл local/public IP/GeoIP
 
@@ -42,7 +54,7 @@ TDD: 30 новых collector и 9 monitor случаев прошли compiled R
 
 Eligibility по US остаётся только EligibleForRouteValidation. Common exit, enforcement и судьба установленных соединений не подтверждены этим циклом. GUI пока не создаёт collectors/monitor, сетевых ограничений нет.
 
-Блокирующая координация реализована в шаге 8a выше, single ownership — в шаге 8b.1; privileged hosting и полный runtime lifecycle остаются шагом 8b.2. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем нужны GUI/CLI, installer/recovery и итоговая матрица VM.
+Блокирующая координация реализована в шаге 8a выше, single ownership — в шаге 8b.1, IPC transport — в шаге 8b.2; privileged hosting и полный runtime lifecycle остаются шагом 8b.3. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем нужны GUI/CLI, installer/recovery и итоговая матрица VM.
 
 ## Результат шага 7c.1: периодические локальные диагностики
 
