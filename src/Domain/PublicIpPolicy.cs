@@ -26,6 +26,9 @@ public sealed class PublicIpPolicy
         }
     }
 
+    /// <summary>Gets the exclusive evidence age limit shared by collection and background expiry.</summary>
+    public TimeSpan MaximumEvidenceAge => maximumEvidenceAge;
+
     /// <summary>Evaluates one immutable assessment against the current network generation and explicit clock.</summary>
     public PublicIpDecision Evaluate(NetworkAssessment? assessment, Guid currentNetworkVersion, DateTimeOffset now)
     {

@@ -4,6 +4,20 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 7c.2: общий цикл local/public IP/GeoIP
+
+NetworkCheckCollector объединяет существующие local collector и NetworkAssessor. Один outer generation/latch и interval начинаются до local reads; child intervals должны помещаться внутри него, а HTTP collection не перезапускает возраст. Итоговая PublicIpPolicy повторно оценивает обе семьи на полном интервале. Completed может содержать отрицательное решение по стране/источникам. При operational failure, network change, rollback или expiry Snapshot отсутствует; оригинальный Assessment сохраняет source/database/lookup diagnostics и не заменяет outer evidence.
+
+NetworkDiagnosticsMonitor использует один serial lifecycle для local-only и full source через внутренний INetworkDiagnosticsSource. Async HTTPS batches ожидаются без параллельных попыток; late output после refresh/deadline/exit отбрасывается. Периодические full checks выявляют NAT-only смену public IP и страны без OS notification. LastFailure предоставляет причину unavailable outcome и очищается при повторной проверке/восстановлении. Earliest actual GeoIP deadline сокращает armed timer без продления исходного elapsed limit; отмена held observation не требует Capture. Общий NetworkEvidenceLifetime устраняет дублирование одинаковых generation/time checkpoints.
+
+TDD: 30 новых collector и 9 monitor случаев прошли compiled Red → Green. Четыре дополнительных характеризующих случая проверили final outer boundary. Два regression-теста воспроизвели прежний пропуск rollback между route child и parent clock, после исправления проходят. Уточнённый тест GeoIP expiry сначала показал, что token отменялся лишь после Capture; timer теперь отзывает snapshot автоматически. Три safe integration случая объединяют настоящий PublicIpReader, MMDB decoder, domain policy и local diagnostics без реальных HTTP-запросов. Итого 45 новых unit и 3 integration; все проходят.
+
+Полный локальный прогон: 736 unit и 102 integration прошли; прежний IPv6 loopback получил WSAEACCES, один native WFP VM-тест пропущен. Locked restore, Release build (0 warnings/errors), whitespace check прошли. Первый повторный запуск --no-build до завершения сборки взял старые assemblies; результат отброшен, последующие проверки выполнялись только после завершённого build. Реальные network settings, proxy/VPN/маршруты и WFP не менялись, внешние sources и базы не скачивались.
+
+Eligibility по US остаётся только EligibleForRouteValidation. Common exit, enforcement и судьба установленных соединений не подтверждены этим циклом. GUI пока не создаёт collectors/monitor, сетевых ограничений нет.
+
+Следующий этап 8: определить владельца fail-closed состояния и общую orchestration для диагностики/WFP, обработать lifecycle/ошибки/привилегии без Windows Service. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем подключить GUI/CLI к общему состоянию и ручной перепроверке, реализовать installer/recovery и итоговую матрицу VM.
+
 ## Результат шага 7c.1: периодические локальные диагностики
 
 NetworkDiagnosticsCollector объединяет existing RouteDiagnosticsCollector, proxy и RAS readers. Общие generation/latch, start-to-completion interval и domain-owned exclusive age проверяются после каждой границы; список копируется, частичные результаты не публикуются. Ошибки, malformed/null results, network change, expiry и rollback имеют явные исходы. Unknown family остаётся диагностикой, не eligibility.
@@ -16,7 +30,7 @@ TDD: 31 collector-случай сначала упал на скомпилиро
 
 Срок/отмена — lifetime локальных данных, не enforcement. Timer callbacks не дают real-time guarantees; перед использованием нужны оба tokens и freshness. Sequential native reads не atomic, нет доказанного общего выхода PowerShell. GUI, публичные IP/GeoIP и WFP пока не используют этот loop.
 
-Следующий шаг 7c.2: объединить периодическую оценку public IP/GeoIP с local diagnostics в общем сценарии, с единым outer generation/interval и отзывом устаревших результатов; проверить NAT-only смену IP, смену страны и ошибки источников без локального уведомления. Затем нужны GUI/CLI, policy orchestration, installer/recovery и изолированная VM для реального enforcement. Permit по диагностическим observations не выдаётся.
+Объединение с public IP/GeoIP реализовано в шаге 7c.2 выше. GUI/CLI, policy orchestration, installer/recovery и изолированная VM для реального enforcement остаются следующими этапами. Permit по диагностическим observations не выдаётся.
 
 ## Результат шага 7b.2: наблюдения proxy и RAS VPN
 

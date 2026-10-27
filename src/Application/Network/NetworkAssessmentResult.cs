@@ -79,4 +79,17 @@ public sealed class NetworkAssessmentSnapshot
 
     /// <summary>Gets the original generation and its permanent invalidation token, which remains live after return.</summary>
     public NetworkSnapshot Network { get; }
+
+    /// <summary>Gets the earliest country-database deadline across either family, or null when no lookup evidence exists.</summary>
+    public DateTimeOffset? DatabaseValidUntil
+    {
+        get
+        {
+            var ipv4 = Evidence.Ipv4?.GeoIp?.DatabaseValidUntil;
+            var ipv6 = Evidence.Ipv6?.GeoIp?.DatabaseValidUntil;
+            if (!ipv4.HasValue) return ipv6;
+            if (!ipv6.HasValue) return ipv4;
+            return ipv4.Value <= ipv6.Value ? ipv4 : ipv6;
+        }
+    }
 }

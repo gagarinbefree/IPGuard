@@ -16,6 +16,60 @@ public sealed class NetworkAssessmentTests
 {
     private static readonly TimeSpan DatabaseAge = TimeSpan.FromDays(45);
 
+    /// <summary>Real response parsing and MMDB lookup retain both countries in the complete local/public interval.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FullCheckCombinesRealAddressReaderAndDatabase(bool allowJapan)
+    {
+        using var changed = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var network = new SnapshotProvider(changed.Token);
+        var readers = new LocalReaders();
+        using var fixture = MmdbCountryDatabase.Open(Fixture, DatabaseAge);
+        var now = fixture.Info.BuiltAt.AddDays(1);
+        var policy = new PublicIpPolicy(TimeSpan.FromMinutes(5), allowJapan ? ["US", "JP"] : ["US"]);
+        var local = new NetworkDiagnosticsCollector(readers, readers, readers, network, policy.MaximumEvidenceAge, () => now);
+        var assessor = Assessor(network, "149.101.100.1", () => MmdbCountryDatabase.Open(Fixture, DatabaseAge), policy);
+        var collector = new NetworkCheckCollector(local, assessor, network, policy, () => now);
+
+        var result = await collector.CollectAsync(changed.Token);
+
+        Assert.Equal(NetworkDiagnosticsStatus.Completed, result.Status);
+        var snapshot = Assert.IsType<NetworkDiagnosticsSnapshot>(result.Snapshot);
+        var assessment = Assert.IsType<NetworkAssessmentSnapshot>(snapshot.Assessment);
+        Assert.Equal(allowJapan, assessment.Decision.IsEligible);
+        Assert.Equal("US", assessment.Evidence.Ipv4!.GeoIp!.CountryCode);
+        Assert.Equal("JP", assessment.Evidence.Ipv6!.GeoIp!.CountryCode);
+        Assert.Equal(snapshot.StartedAt, assessment.Evidence.StartedAt);
+        Assert.Equal(snapshot.CompletedAt, assessment.Evidence.CompletedAt);
+        Assert.Equal(4, result.Assessment!.Collection!.Snapshot!.Attempts.Count);
+        Assert.Empty(snapshot.Routes);
+        Assert.Empty(snapshot.Connections);
+        Assert.Null(result.Error);
+    }
+
+    /// <summary>A real unknown-country record prevents publication of an otherwise complete local diagnostic snapshot.</summary>
+    [Fact]
+    public async Task FullCheckRejectsRealUnknownCountry()
+    {
+        using var changed = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var network = new SnapshotProvider(changed.Token);
+        var readers = new LocalReaders();
+        using var fixture = MmdbCountryDatabase.Open(Fixture, DatabaseAge);
+        var now = fixture.Info.BuiltAt.AddDays(1);
+        var policy = new PublicIpPolicy(TimeSpan.FromMinutes(5));
+        var local = new NetworkDiagnosticsCollector(readers, readers, readers, network, policy.MaximumEvidenceAge, () => now);
+        var collector = new NetworkCheckCollector(local,
+            Assessor(network, "8.8.8.8", () => MmdbCountryDatabase.Open(Fixture, DatabaseAge), policy), network, policy, () => now);
+
+        var result = await collector.CollectAsync(changed.Token);
+
+        Assert.Equal(NetworkDiagnosticsStatus.Failed, result.Status);
+        Assert.Null(result.Snapshot);
+        Assert.Equal(GeoIpLookupStatus.UnknownCountry, result.Assessment!.GeoIpFailure!.Status);
+        Assert.Null(result.Assessment.GeoIpFailure.Evidence.CountryCode);
+    }
+
     /// <summary>Actual country records for both families retain their countries and follow the supplied allowlist.</summary>
     [Theory]
     [InlineData(false)]
@@ -161,6 +215,19 @@ public sealed class NetworkAssessmentTests
 
     /// <summary>Creates a unique temporary file name for this operation only.</summary>
     private static string TemporaryPath() => Path.Combine(Path.GetTempPath(), $"ipguard-assessment-{Guid.NewGuid():N}.mmdb");
+
+    /// <summary>Supplies local observations without treating empty lists or false flags as verified routes.</summary>
+    private sealed class LocalReaders : IRoutingTableReader, IProxySettingsReader, IRemoteAccessReader
+    {
+        /// <summary>Provides a complete empty route observation without accessing the host.</summary>
+        IReadOnlyList<NetworkRoute> IRoutingTableReader.Read(CancellationToken cancellationToken) => [];
+
+        /// <summary>Provides configured-mechanism flags without asserting direct PowerShell traffic.</summary>
+        ProxySettings IProxySettingsReader.Read(CancellationToken cancellationToken) => new(false, false, false, false, false, false, false, false);
+
+        /// <summary>Provides no RAS entries without asserting that no VPN exists.</summary>
+        IReadOnlyList<RemoteAccessConnection> IRemoteAccessReader.Read(CancellationToken cancellationToken) => [];
+    }
 
     /// <summary>Returns a stable cached generation with an independently controlled invalidation signal.</summary>
     private sealed class SnapshotProvider : INetworkSnapshotProvider

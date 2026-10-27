@@ -6,11 +6,19 @@ IPGuard будет настольным приложением с треем н�
 
 Основной риск — различие между наблюдением адреса и обеспечением маршрута: несколько HTTPS-ответов с адресом США не доказывают, что произвольное соединение PowerShell использует тот же внешний выход. При отсутствии достаточного подтверждения решение остаётся блокирующим. Геолокация адреса удалённого сервера в принятии решения не участвует.
 
-## Мониторинг и диагностика Windows — 24–25 октября 2026 года
+## Мониторинг и диагностика Windows — 24–27 октября 2026 года
+
+### Полный периодический цикл, шаг 7c.2 — 27 октября
+
+Добавлена композиция local observations и public IP/GeoIP с общими outer generation, interval и final policy. Синхронные local/native/MMDB calls по-прежнему требуют background host; async метод сам по себе не переносит их с UI thread. Существующий monitor запускает сценарий на worker и ожидает HTTPS attempts. Локальный monitor OS не обнаруживает NAT-only изменения; повторные full checks получают новые внешние адреса без OS event. До завершения следующего успешного запроса текущий внешний адрес не известен достоверно, а checks не доказывают общий выход PowerShell.
+
+Earliest deadline фактического GeoIP evidence ограничивает и cached validation, и timer published observation. Deadline вооружается после final validation только если сокращает оставшийся исходный elapsed limit. Timer callbacks зависят от runtime scheduling; held snapshot не является разрешением и требует перепроверки tokens/time перед использованием. Clock rollback проверяется на каждом boundary и через containment child intervals: локально обнаружен и исправлен случай, когда route child завершался позже последующего parent timestamp, но оба значения оставались после общего старта.
+
+Runtime loop не продублирован: local-only и full collection используют внутренний общий контракт; реальные platform boundaries не менялись. Ошибки публичных sources остаются в полном ordered attempt list и дают negative decision, а DB/operational failures сохраняются в diagnostic-only Assessment и LastFailure без outer Snapshot. Общая политика по-прежнему не содержит Allow или TrustedRoute и не вызывает WFP. Новых пакетов и платформенных API этот шаг не добавляет.
 
 ### Общий локальный цикл, шаг 7c.1
 
-Сочетание generation token и UTC interval не делает последовательные route/proxy/RAS reads атомарной транзакцией ОС. Сборщик проверяет обе границы, исходный latch и shared domain CheckInterval после каждого reader; Unknown family не мешает диагностике, но не становится public-IP eligibility. Для proxy/RAS без уведомлений добавлен отдельный periodic refresh. HTTPS/GeoIP assessment в этот локальный цикл пока не входит: он не обнаруживает NAT-only смену публичного адреса.
+Сочетание generation token и UTC interval не делает последовательные route/proxy/RAS reads атомарной транзакцией ОС. Сборщик проверяет обе границы, исходный latch и shared domain CheckInterval после каждого reader; Unknown family не мешает диагностике, но не становится public-IP eligibility. Для proxy/RAS без уведомлений добавлен отдельный periodic refresh. В шаге 7c.1 HTTPS/GeoIP в локальный цикл ещё не входил; общая композиция появилась в шаге 7c.2 выше.
 
 TimeProvider предоставляет timers и timestamp-based elapsed measurement. Deadline вооружается до collection, а не после завершения; Capture и публикация проверяют также elapsed age независимо от UTC и доставки timer callback. Таймеры не являются real-time enforcement: scheduling может задерживать callback, полученный immutable object сам себя удалить не может. Перед использованием нужны оба live tokens и freshness; WFP этот цикл не меняет. [CreateTimer](https://learn.microsoft.com/en-us/dotnet/api/system.timeprovider.createtimer?view=net-10.0), [GetElapsedTime](https://learn.microsoft.com/en-us/dotnet/api/system.timeprovider.getelapsedtime?view=net-10.0).
 

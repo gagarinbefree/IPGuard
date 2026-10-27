@@ -2,11 +2,11 @@ using System.Threading.Channels;
 
 namespace IPGuard.Application.Network;
 
-/// <summary>Publishes bounded local observations through a serial background refresh loop.</summary>
+/// <summary>Publishes bounded local or full observations through one serial background refresh loop.</summary>
 public sealed class NetworkDiagnosticsMonitor : IDisposable
 {
     private readonly object gate = new();
-    private readonly NetworkDiagnosticsCollector collector;
+    private readonly INetworkDiagnosticsSource collector;
     private readonly TimeProvider timeProvider;
     private readonly ITimer periodic;
     private readonly Task worker;
@@ -22,10 +22,19 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
     private NetworkDiagnosticsStatus? lastStatus;
     private Exception? lastError;
     private Exception? callbackError;
+    private NetworkDiagnosticsResult? lastFailure;
     private bool disposed;
+
+    /// <summary>Starts periodic full local/public-IP checks using the same serial refresh lifecycle.</summary>
+    public NetworkDiagnosticsMonitor(NetworkCheckCollector collector, TimeSpan interval, TimeProvider? timeProvider = null)
+        : this((INetworkDiagnosticsSource)collector, interval, timeProvider) { }
 
     /// <summary>Starts initial collection and periodic refresh with an independent snapshot deadline.</summary>
     public NetworkDiagnosticsMonitor(NetworkDiagnosticsCollector collector, TimeSpan interval, TimeProvider? timeProvider = null)
+        : this((INetworkDiagnosticsSource)collector, interval, timeProvider) { }
+
+    /// <summary>Composes only the two existing diagnostic scenarios with shared scheduling and retirement behavior.</summary>
+    private NetworkDiagnosticsMonitor(INetworkDiagnosticsSource collector, TimeSpan interval, TimeProvider? timeProvider)
     {
         ArgumentNullException.ThrowIfNull(collector);
         ValidateTimer(interval, nameof(interval));
@@ -44,6 +53,12 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
     public NetworkDiagnosticsStatus? LastStatus
     {
         get { lock (gate) { return lastStatus; } }
+    }
+
+    /// <summary>Gets the latest unavailable outcome and its source/database diagnostics; it never supplies current evidence.</summary>
+    public NetworkDiagnosticsResult? LastFailure
+    {
+        get { lock (gate) { return lastFailure; } }
     }
 
     /// <summary>Gets the latest read or validation error, with consumer callback failures latched across later successes.</summary>
@@ -69,6 +84,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
             QueueRefresh();
             lastStatus = failure;
             lastError = error;
+            lastFailure = new(failure ?? NetworkDiagnosticsStatus.Failed, error: error);
             return null;
         }
     }
@@ -112,6 +128,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
     {
         RetireActive();
         lastStatus = null;
+        lastFailure = null;
         refreshes.Writer.TryWrite(true);
     }
 
@@ -137,7 +154,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
         previous.Source.Dispose();
     }
 
-    /// <summary>Serializes synchronous local readers on one background worker and drops retired responses.</summary>
+    /// <summary>Serializes local reads and asynchronous source requests on one background worker and drops retired responses.</summary>
     private async Task ReadLoopAsync()
     {
         while (await refreshes.Reader.WaitToReadAsync().ConfigureAwait(false))
@@ -149,6 +166,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
                 if (disposed) return;
                 RetireActive();
                 lastStatus = null;
+                lastFailure = null;
                 run = new Run();
                 active = run;
             }
@@ -162,7 +180,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
                     run.StartedAt = timeProvider.GetTimestamp();
                     run.Deadline = timeProvider.CreateTimer(_ => RequestRefresh(run), null, collector.MaximumAge, Timeout.InfiniteTimeSpan);
                 }
-                NetworkDiagnosticsResult result = collector.Collect(run.Token);
+                NetworkDiagnosticsResult result = await collector.CollectAsync(run.Token).ConfigureAwait(false);
                 lock (gate)
                 {
                     if (active != run || disposed || run.Token.IsCancellationRequested) continue;
@@ -178,6 +196,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
                         RetireActive();
                         lastStatus = NetworkDiagnosticsStatus.Failed;
                         lastError = error;
+                        lastFailure = new(NetworkDiagnosticsStatus.Failed, error: error);
                     }
                 }
             }
@@ -190,6 +209,7 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
     {
         lastStatus = result.Status;
         lastError = result.Error;
+        lastFailure = result.Status == NetworkDiagnosticsStatus.Completed ? null : result;
         if (result.Status != NetworkDiagnosticsStatus.Completed || result.Snapshot is not { } snapshot)
         {
             RetireActive();
@@ -202,11 +222,25 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
         {
             RetireActive();
             lastStatus = failure;
+            lastFailure = new(failure.Value, assessment: result.Assessment);
             return;
         }
+        LimitDatabaseDeadline(run, snapshot);
+        if (active != run || run.Token.IsCancellationRequested) return;
         run.NetworkRegistration = snapshot.Network.Invalidated.UnsafeRegister(_ => RequestRefresh(run), null);
         if (active != run || run.Token.IsCancellationRequested || snapshot.Network.Invalidated.IsCancellationRequested) return;
         current = new NetworkDiagnosticsObservation(snapshot, run.Token);
+    }
+
+    /// <summary>Shortens the armed deadline for country evidence without extending the original elapsed-time limit.</summary>
+    private void LimitDatabaseDeadline(Run run, NetworkDiagnosticsSnapshot snapshot)
+    {
+        if (snapshot.Assessment?.DatabaseValidUntil is not { } deadline) return;
+        var remaining = deadline - lastTime;
+        var ageLeft = collector.MaximumAge - timeProvider.GetElapsedTime(run.StartedAt);
+        if (remaining >= ageLeft) return;
+        if (remaining <= TimeSpan.Zero || !run.Deadline!.Change(remaining, Timeout.InfiniteTimeSpan))
+            throw new InvalidOperationException("Cannot arm the country evidence deadline.");
     }
 
     /// <summary>Checks elapsed age independently of wall time and timer callback scheduling.</summary>
@@ -242,14 +276,14 @@ public sealed class NetworkDiagnosticsMonitor : IDisposable
 /// <summary>Pairs immutable observations with a monitor-owned retirement signal, independently of enforcement.</summary>
 public sealed class NetworkDiagnosticsObservation
 {
-    /// <summary>Captures complete local diagnostics and their additional refresh/deadline lifetime.</summary>
+    /// <summary>Captures complete diagnostics and their additional refresh/deadline lifetime.</summary>
     internal NetworkDiagnosticsObservation(NetworkDiagnosticsSnapshot snapshot, CancellationToken invalidated)
     {
         Snapshot = snapshot;
         Invalidated = invalidated;
     }
 
-    /// <summary>Gets local observations; false flags and empty lists do not establish a direct exit.</summary>
+    /// <summary>Gets requested observations; country eligibility, false flags, and empty lists do not establish a direct exit.</summary>
     public NetworkDiagnosticsSnapshot Snapshot { get; }
 
     /// <summary>Gets the permanent signal for refresh, network change, timeout, failure, or disposal.</summary>

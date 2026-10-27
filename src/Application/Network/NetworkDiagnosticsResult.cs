@@ -1,9 +1,9 @@
 namespace IPGuard.Application.Network;
 
-/// <summary>Describes local diagnostic availability without granting network access.</summary>
+/// <summary>Describes diagnostic availability without granting network access.</summary>
 public enum NetworkDiagnosticsStatus
 {
-    /// <summary>All local observations were collected within one live generation and interval.</summary>
+    /// <summary>Requested observations share one live generation and interval; a country decision may still reject them.</summary>
     Completed,
     /// <summary>No live network generation was available before collection.</summary>
     NetworkUnavailable,
@@ -17,15 +17,17 @@ public enum NetworkDiagnosticsStatus
     Failed
 }
 
-/// <summary>Contains complete local diagnostics or the reason no snapshot is available.</summary>
+/// <summary>Contains complete diagnostics or the reason no snapshot is available.</summary>
 public sealed class NetworkDiagnosticsResult
 {
     /// <summary>Captures an outcome without implying route coverage or enforcement.</summary>
-    internal NetworkDiagnosticsResult(NetworkDiagnosticsStatus status, NetworkDiagnosticsSnapshot? snapshot = null, Exception? error = null)
+    internal NetworkDiagnosticsResult(NetworkDiagnosticsStatus status, NetworkDiagnosticsSnapshot? snapshot = null, Exception? error = null,
+        NetworkAssessmentResult? assessment = null)
     {
         Status = status;
         Snapshot = snapshot;
         Error = error;
+        Assessment = assessment;
     }
 
     /// <summary>Gets the collection outcome, independently of country eligibility.</summary>
@@ -36,15 +38,19 @@ public sealed class NetworkDiagnosticsResult
 
     /// <summary>Gets the original reader failure when available.</summary>
     public Exception? Error { get; }
+
+    /// <summary>Gets original address/database diagnostics, or null when not assessed; only Snapshot.Assessment is usable evidence.</summary>
+    public NetworkAssessmentResult? Assessment { get; }
 }
 
-/// <summary>Binds local routes, configured proxy flags, and limited RAS observations to one interval.</summary>
+/// <summary>Binds local observations and optional public-address prerequisites to one interval.</summary>
 /// <remarks>Sequential reads are not an OS transaction. Empty lists and false flags do not prove a common exit.</remarks>
 public sealed class NetworkDiagnosticsSnapshot
 {
     /// <summary>Retains immutable models and private lists for one observed generation.</summary>
     internal NetworkDiagnosticsSnapshot(NetworkSnapshot network, DateTimeOffset startedAt, DateTimeOffset completedAt,
-        IReadOnlyList<NetworkRoute> routes, ProxySettings proxy, RemoteAccessConnection[] connections)
+        IReadOnlyList<NetworkRoute> routes, ProxySettings proxy, RemoteAccessConnection[] connections,
+        NetworkAssessmentSnapshot? assessment = null)
     {
         Network = network;
         StartedAt = startedAt;
@@ -52,6 +58,7 @@ public sealed class NetworkDiagnosticsSnapshot
         Routes = Array.AsReadOnly(routes.ToArray());
         Proxy = proxy;
         Connections = Array.AsReadOnly(connections);
+        Assessment = assessment;
     }
 
     /// <summary>Gets the generation and its permanent network invalidation latch.</summary>
@@ -71,4 +78,8 @@ public sealed class NetworkDiagnosticsSnapshot
 
     /// <summary>Gets RAS-visible observations; an empty list does not establish absence of VPNs.</summary>
     public IReadOnlyList<RemoteAccessConnection> Connections { get; }
+
+    /// <summary>Gets country prerequisites evaluated over the full interval, or null for local-only collection.</summary>
+    /// <remarks>Eligibility is not a verified route or permission to send traffic.</remarks>
+    public NetworkAssessmentSnapshot? Assessment { get; }
 }

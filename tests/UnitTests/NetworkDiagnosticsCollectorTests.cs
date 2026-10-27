@@ -174,6 +174,24 @@ public sealed class NetworkDiagnosticsCollectorTests
         Assert.Null(result.Snapshot);
     }
 
+    /// <summary>A nested route interval must fit inside its parent's observed interval, even after a brief clock rollback.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RouteIntervalCannotEscapeParent(bool endsAfterParent)
+    {
+        using var setup = new Setup();
+        var calls = 0;
+        var result = setup.Collector(() => ++calls switch
+        {
+            2 => Start.AddSeconds(endsAfterParent ? 0 : -1),
+            3 => Start.AddSeconds(endsAfterParent ? 3 : 0),
+            _ => Start.AddSeconds(endsAfterParent && calls > 3 ? 2 : 0)
+        }).Collect(TestContext.Current.CancellationToken);
+        Assert.Equal(NetworkDiagnosticsStatus.InvalidTimestamps, result.Status);
+        Assert.Null(result.Snapshot);
+    }
+
     /// <summary>Caller cancellation wins before or during any reader, including an uncooperative return.</summary>
     [Theory]
     [InlineData("before")]
