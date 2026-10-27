@@ -2,6 +2,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform;
 using IPGuard.Desktop.Lifetime;
+using IPGuard.Application.Protection;
+using IPGuard.Desktop.Hosting;
 using IPGuard.Desktop.ViewModels;
 using IPGuard.Desktop.Views;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +23,7 @@ public static class DesktopBootstrapper
         services.AddSingleton(_ => ShellWindow.Create());
         services.AddSingleton<IDesktopHost>(provider => new AvaloniaDesktopHost(
             provider.GetRequiredService<Window>(), () => lifetime.Shutdown()));
+        services.AddSingleton(_ => new ProtectionSessionController(WindowsProtectionSession.ConnectAsync));
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton(provider => CreateTrayIcon(provider.GetRequiredService<ShellViewModel>()));
         var provider = services.BuildServiceProvider(new ServiceProviderOptions

@@ -53,7 +53,7 @@
 | W19 | Sleep/resume и изменение сети во время HTTPS | Старые результаты не применяются к новой версии сети. |
 | W20 | DNS/HTTPS/TLS/GeoIP failures и конфликт источников | Ошибка проверки не оставляет действующим разрешение сверх принятого контракта свежести. |
 | W21 | Разные пути, x86/x64, Store и portable PowerShell | Для зарегистрированных путей действует политика; неизвестные пути явно отражены как ограничение покрытия. |
-| W22 | Закрытие окна, восстановление из трея и Exit | Закрытие окна сохраняет контроль; Exit отзывает разрешение. UI остаётся отзывчивым. |
+| W22 | GUI session, закрытие окна, трей и Exit | Start явный, UI не блокируется при consent/handshake/native recheck. Hiding сохраняет polling, Exit ждёт Stop/cleanup. Проверить Exit во время UAC/handshake/активного recheck, process death и неизвестный статус после loss/expiry. Object counts/time не выдаются за effective filtering. Country Permit пока отсутствует; будущий разрешающий режим должен отдельно подтвердить отзыв. |
 | W23 | Второй экземпляр, другой пользователь и logoff | Нет конкурирующих владельцев разрешения, сохраняющих Permit после выхода владельца. |
 | W24 | Повышенный block-only helper и IPC | Проверить защищённую folder installation, owner/DACL/reparse и dependency replacement, bounded helper.json, wrong parent/image/account, UAC cancellation и mixed-elevation pipe. Portable bundle не повышается. Смерть GUI, startup failure, timeout и malformed IPC завершают final reconcile до owner release; чужие правила не удаляются. Проверить idle polling и отсутствие Permit. Реальные boot/crash/hang/traffic результаты записываются отдельно. |
 | W25 | Установка, обновление и сбой удаления | Прерванная операция не оставляет приложение в ошибочно разрешённом состоянии. |

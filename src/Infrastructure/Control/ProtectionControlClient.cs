@@ -3,7 +3,7 @@ using IPGuard.Application.Protection;
 namespace IPGuard.Infrastructure.Control;
 
 /// <summary>Serializes bounded command exchanges and retires a connection after any interrupted transaction.</summary>
-public sealed class ProtectionControlClient : IAsyncDisposable
+public sealed class ProtectionControlClient : IProtectionSession
 {
     private readonly Stream stream;
     private readonly TimeSpan timeout;

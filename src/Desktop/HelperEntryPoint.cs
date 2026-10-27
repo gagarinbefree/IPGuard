@@ -57,6 +57,7 @@ public static class HelperEntryPoint
             var ownedNetwork = network;
             var ownedDiagnostics = diagnostics;
             runtime = new ProtectionRuntime(backend, owner, diagnostics, () => CloseDiagnosticsAsync(ownedDiagnostics, ownedNetwork));
+            runtime.StartPeriodicChecks(TimeSpan.FromSeconds(10));
             var result = await ProtectionControlServer.ConnectAndRunAsync(token => WindowsControlPipe.ConnectAsync(
                 request.PipeName, parent, TimeSpan.FromSeconds(30), token), runtime, TimeSpan.FromSeconds(30), CancellationToken.None)
                 .ConfigureAwait(false);

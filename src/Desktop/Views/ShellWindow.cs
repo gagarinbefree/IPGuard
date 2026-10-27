@@ -17,9 +17,9 @@ public static class ShellWindow
     {
         Title = "IPGuard",
         Width = 780,
-        Height = 600,
+        Height = 760,
         MinWidth = 640,
-        MinHeight = 520,
+        MinHeight = 600,
         WindowStartupLocation = WindowStartupLocation.CenterScreen,
         Background = Brush.Parse("#10141D"),
         Content = new ScrollViewer().Content(
@@ -56,16 +56,26 @@ public static class ShellWindow
         new TextBlock().Text("Диагностика").FontSize(18).FontWeight(FontWeight.SemiBold),
         new TextBlock().Text("Публичный IP: не проверен"),
         new TextBlock().Text("Страна и маршрут: не проверены"),
+        new TextBlock().Name("PolicyStatus").Text(new Binding(nameof(ShellViewModel.PolicyDescription)))
+            .TextWrapping(TextWrapping.Wrap),
         new TextBlock().Text("Состояние сетевой блокировки: неизвестно")
             .Foreground(Brush.Parse("#E9BA64")),
         new TextBlock().Text("Закрытие окна оставляет приложение в трее.")
             .TextWrapping(TextWrapping.Wrap).Foreground(Brush.Parse("#A5AEC0")));
 
-    /// <summary>Creates separate actions for hiding the window and exiting the application.</summary>
+    /// <summary>Separates explicit block-only startup and recheck from window hiding and terminal exit.</summary>
     private static Control CreateActions() => new StackPanel()
-        .Orientation(Orientation.Horizontal).Spacing(12).Children(
-            new Button().Name("HideWindowButton").Content("Свернуть в трей")
-                .Command(new Binding(nameof(ShellViewModel.HideWindowCommand))),
-            new Button().Name("ExitButton").Content("Выйти из IPGuard")
-                .Command(new Binding(nameof(ShellViewModel.ExitCommand))));
+        .Spacing(12).Children(
+            new TextBlock().Text("Блокирующий режим сохраняет правила после выхода. Разрешение по стране ещё недоступно.")
+                .TextWrapping(TextWrapping.Wrap).Foreground(Brush.Parse("#A5AEC0")),
+            new StackPanel().Orientation(Orientation.Horizontal).Spacing(12).Children(
+                new Button().Name("StartHelperButton").Content("Запустить блокирующий режим")
+                    .Command(new Binding(nameof(ShellViewModel.StartHelperCommand))),
+                new Button().Name("RecheckButton").Content("Проверить снова")
+                    .Command(new Binding(nameof(ShellViewModel.RecheckCommand)))),
+            new StackPanel().Orientation(Orientation.Horizontal).Spacing(12).Children(
+                new Button().Name("HideWindowButton").Content("Свернуть в трей")
+                    .Command(new Binding(nameof(ShellViewModel.HideWindowCommand))),
+                new Button().Name("ExitButton").Content("Выйти из IPGuard")
+                    .Command(new Binding(nameof(ShellViewModel.ExitCommand)))));
 }

@@ -11,6 +11,27 @@ namespace IntegrationTests;
 /// <summary>Combines real bound pipes, framing, runtime, and controller with a non-native block backend.</summary>
 public sealed class ProtectionControlSessionTests
 {
+    /// <summary>The GUI application controller uses the real pipe protocol and waits for helper cleanup before exit.</summary>
+    [Fact]
+    public async Task GuiControllerUsesRealSessionAndPreservesFinalBlocks()
+    {
+        using var fixture = new Fixture();
+        await using var pair = await Pair.CreateAsync(fixture.Token);
+        var serving = ProtectionControlServer.RunAsync(pair.Helper, fixture.CreateRuntime(), TimeSpan.FromSeconds(10), fixture.Token);
+        await using var controller = new ProtectionSessionController(_ => Task.FromResult<IProtectionSession>(
+            new ProtectionControlClient(pair.Gui, TimeSpan.FromSeconds(10))));
+        await controller.StartAsync();
+        Assert.Equal(BlockPolicyState.Present, controller.Capture().Report?.PolicyState);
+        await controller.RecheckAsync();
+        await controller.StopAsync(fixture.Token);
+        Assert.Equal(ProtectionSessionState.Stopped, controller.Capture().State);
+        Assert.Null(controller.Capture().Error);
+        Assert.Null(controller.Capture().Report);
+        Assert.Equal(1, fixture.OwnerReleases);
+        Assert.Equal(3, fixture.Writes);
+        Assert.Null((await serving.WaitAsync(fixture.Token)).Error);
+    }
+
     /// <summary>IPC startup failure still finishes blocking work and closes diagnostics before ownership release.</summary>
     [Fact]
     public async Task ConnectionFailureStillReconcilesAndReleasesOwner()

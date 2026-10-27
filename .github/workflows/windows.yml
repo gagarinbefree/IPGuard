@@ -120,7 +120,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           @"
-          Windows x64 application shell. Network protection is not enabled yet.
+          Windows x64 GUI with explicit block-only session controls. Portable helper startup is unavailable; network protection is not enabled automatically.
 
           Version: $env:APP_VERSION
           Download and run $env:APP_ASSET. The .NET runtime and native libraries are included.

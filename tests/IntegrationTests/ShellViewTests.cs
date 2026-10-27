@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using IPGuard.Desktop.Lifetime;
+using IPGuard.Application.Protection;
 using IPGuard.Desktop.ViewModels;
 using IPGuard.Desktop.Views;
 using Xunit;
@@ -21,7 +22,7 @@ public sealed class ShellViewTests
     {
         var window = ShellWindow.Create();
         using var host = new AvaloniaDesktopHost(window, () => { });
-        window.DataContext = new ShellViewModel(host);
+        window.DataContext = Model(host);
         window.Show();
 
         var status = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
@@ -46,7 +47,7 @@ public sealed class ShellViewTests
     {
         var window = ShellWindow.Create();
         using var host = new AvaloniaDesktopHost(window, () => Assert.Fail("Unexpected shutdown"));
-        window.DataContext = new ShellViewModel(host);
+        window.DataContext = Model(host);
         window.Show();
         var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
             control => control.Name == "HideWindowButton");
@@ -67,7 +68,7 @@ public sealed class ShellViewTests
     {
         var window = new Window();
         using var host = new AvaloniaDesktopHost(window, () => { });
-        var model = new ShellViewModel(host);
+        var model = Model(host);
 
         var menu = TrayMenu.Create(model);
 
@@ -75,4 +76,7 @@ public sealed class ShellViewTests
         Assert.Contains(commands, item => ReferenceEquals(item.Command, model.ShowWindowCommand));
         Assert.Contains(commands, item => ReferenceEquals(item.Command, model.ExitCommand));
     }
+    /// <summary>Creates a passive test shell without native helper startup.</summary>
+    private static ShellViewModel Model(IDesktopHost host)
+        => new(host, new ProtectionSessionController(_ => throw new InvalidOperationException("Unexpected helper startup.")));
 }

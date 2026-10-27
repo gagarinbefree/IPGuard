@@ -1,4 +1,5 @@
 using IPGuard.Desktop.Lifetime;
+using IPGuard.Application.Protection;
 using IPGuard.Desktop.ViewModels;
 using Xunit;
 
@@ -12,7 +13,7 @@ public sealed class ShellViewModelTests
     public void HideWindow_HidesWindowWithoutShuttingDown()
     {
         var host = new RecordingDesktopHost();
-        var model = new ShellViewModel(host);
+        var model = Model(host);
 
         model.HideWindowCommand.Execute(null);
 
@@ -24,7 +25,7 @@ public sealed class ShellViewModelTests
     public void ShowWindow_RestoresWindowWithoutShuttingDown()
     {
         var host = new RecordingDesktopHost();
-        var model = new ShellViewModel(host);
+        var model = Model(host);
 
         model.ShowWindowCommand.Execute(null);
 
@@ -33,15 +34,19 @@ public sealed class ShellViewModelTests
 
     /// <summary>Only the explicit exit command requests application shutdown.</summary>
     [Fact]
-    public void Exit_ShutsDownApplication()
+    public async Task Exit_ShutsDownApplication()
     {
         var host = new RecordingDesktopHost();
-        var model = new ShellViewModel(host);
+        var model = Model(host);
 
-        model.ExitCommand.Execute(null);
+        await model.ExitCommand.ExecuteAsync(null);
 
         Assert.Equal(["shutdown"], host.Actions);
     }
+
+    /// <summary>Builds a passive shell whose connector must never run for window commands.</summary>
+    private static ShellViewModel Model(IDesktopHost host)
+        => new(host, new ProtectionSessionController(_ => throw new InvalidOperationException("Unexpected helper startup.")));
 
     /// <summary>Records observable shell actions without creating windows or accessing the OS.</summary>
     private sealed class RecordingDesktopHost : IDesktopHost

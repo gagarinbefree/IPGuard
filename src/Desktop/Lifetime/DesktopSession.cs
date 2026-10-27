@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Microsoft.Extensions.DependencyInjection;
+using Avalonia.Threading;
+using IPGuard.Desktop.ViewModels;
 
 namespace IPGuard.Desktop.Lifetime;
 
@@ -12,6 +14,8 @@ public sealed class DesktopSession : IDisposable
     private readonly ServiceProvider _services;
     private readonly TrayIcon _icon;
     private bool _disposed;
+    private readonly DispatcherTimer _refresh;
+    private readonly ShellViewModel _model;
 
     /// <summary>Connects resource cleanup to the desktop lifetime's exit event.</summary>
     /// <param name="application">The owner of the tray icon collection.</param>
@@ -25,6 +29,10 @@ public sealed class DesktopSession : IDisposable
         _lifetime = lifetime;
         _services = services;
         _icon = icon;
+        _model = services.GetRequiredService<ShellViewModel>();
+        _refresh = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _refresh.Tick += OnRefresh;
+        _refresh.Start();
         _lifetime.Exit += OnExit;
     }
 
@@ -37,6 +45,8 @@ public sealed class DesktopSession : IDisposable
         }
 
         _disposed = true;
+        _refresh.Stop();
+        _refresh.Tick -= OnRefresh;
         _lifetime.Exit -= OnExit;
         _icon.IsVisible = false;
         TrayIcon.GetIcons(_application)?.Remove(_icon);
@@ -45,4 +55,11 @@ public sealed class DesktopSession : IDisposable
 
     /// <summary>Releases tray resources on explicit exit or normal OS shutdown.</summary>
     private void OnExit(object? sender, ControlledApplicationLifetimeExitEventArgs args) => Dispose();
+
+    /// <summary>Updates presentation from cached data only; polling and native work stay on background workers.</summary>
+    private void OnRefresh(object? sender, EventArgs args)
+    {
+        _model.RefreshStatus();
+        _icon.ToolTipText = $"IPGuard — {_model.ProtectionTitle}";
+    }
 }

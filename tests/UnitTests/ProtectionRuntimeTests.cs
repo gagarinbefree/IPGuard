@@ -1,12 +1,85 @@
 using IPGuard.Application.Network;
 using IPGuard.Application.Protection;
 using Xunit;
+using Microsoft.Extensions.Time.Testing;
 
 namespace UnitTests;
 
 /// <summary>Checks terminal policy work and cleanup ordering without native policy changes.</summary>
 public sealed class ProtectionRuntimeTests
 {
+    /// <summary>A tick reconciles persistent blocks independently of GUI status polling.</summary>
+    [Fact]
+    public async Task PeriodicCheckReconcilesWithoutGuiCommand()
+    {
+        using var setup = new Setup();
+        var time = new FakeTimeProvider();
+        var entered = Signal();
+        setup.Ensure = _ => { entered.TrySetResult(); return Task.CompletedTask; };
+        await using var runtime = setup.Create();
+        runtime.StartPeriodicChecks(TimeSpan.FromSeconds(1), time);
+        Assert.Empty(setup.Events);
+        time.Advance(TimeSpan.FromSeconds(1));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var final = await runtime.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(BlockPolicyState.Present, final.Policy?.State);
+        Assert.True(setup.Events.Count(item => item == "ensure") >= 2);
+        Assert.Equal("owner", setup.Events[^1]);
+    }
+
+    /// <summary>Terminal cleanup drains an executing periodic native-shaped call before releasing ownership.</summary>
+    [Fact]
+    public async Task ShutdownDrainsPeriodicCall()
+    {
+        using var setup = new Setup();
+        var time = new FakeTimeProvider();
+        var entered = Signal();
+        var release = Signal();
+        setup.Ensure = async _ => { entered.TrySetResult(); await release.Task; };
+        await using var runtime = setup.Create();
+        try
+        {
+            runtime.StartPeriodicChecks(TimeSpan.FromSeconds(1), time);
+            time.Advance(TimeSpan.FromSeconds(1));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var stopping = runtime.StopAsync(TestContext.Current.CancellationToken);
+            Assert.False(stopping.IsCompleted);
+            Assert.DoesNotContain("owner", setup.Events);
+        }
+        finally { release.TrySetResult(); }
+        await runtime.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("owner", setup.Events[^1]);
+        int count = setup.Events.Count;
+        time.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(count, setup.Events.Count);
+    }
+
+    /// <summary>The scheduler has one lifetime and cannot be restarted after terminal cleanup.</summary>
+    [Fact]
+    public async Task PeriodicChecksCannotBeDuplicatedOrRestarted()
+    {
+        using var setup = new Setup();
+        await using var runtime = setup.Create();
+        runtime.StartPeriodicChecks(TimeSpan.FromSeconds(1), new FakeTimeProvider());
+        Assert.Throws<InvalidOperationException>(() => runtime.StartPeriodicChecks(TimeSpan.FromSeconds(1)));
+        await runtime.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Throws<ObjectDisposedException>(() => runtime.StartPeriodicChecks(TimeSpan.FromSeconds(1)));
+    }
+
+    /// <summary>Unbounded or overly frequent scheduling is rejected without starting native work.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(0.5)]
+    [InlineData(3601)]
+    [InlineData(-1)]
+    public async Task InvalidPeriodicIntervalIsRejected(double seconds)
+    {
+        using var setup = new Setup();
+        await using var runtime = setup.Create();
+        Assert.Throws<ArgumentOutOfRangeException>(() => runtime.StartPeriodicChecks(TimeSpan.FromSeconds(seconds)));
+        Assert.Empty(setup.Events);
+    }
+
     /// <summary>Final block ensure and readback precede diagnostic cleanup and exclusive owner release.</summary>
     [Fact]
     public async Task StopPreservesBaselineAndReleasesOwnerLast()
