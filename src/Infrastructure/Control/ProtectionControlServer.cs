@@ -5,18 +5,38 @@ namespace IPGuard.Infrastructure.Control;
 /// <summary>Runs one bounded block-only command session and reconciles persistent blocks on every exit path.</summary>
 public static class ProtectionControlServer
 {
+    /// <summary>Reconciles before connecting and guarantees terminal cleanup even when IPC startup fails.</summary>
+    public static Task<ProtectionControlCompletion> ConnectAndRunAsync(Func<CancellationToken, Task<Stream>> connect,
+        ProtectionRuntime runtime, TimeSpan commandTimeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connect);
+        return RunCoreAsync(null, connect, runtime, commandTimeout, cancellationToken);
+    }
+
     /// <summary>Takes stream ownership, runs commands, closes transport, and stops the runtime even after malformed input.</summary>
-    public static async Task<ProtectionControlCompletion> RunAsync(Stream stream, ProtectionRuntime runtime, TimeSpan commandTimeout,
+    public static Task<ProtectionControlCompletion> RunAsync(Stream stream, ProtectionRuntime runtime, TimeSpan commandTimeout,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        return RunCoreAsync(stream, null, runtime, commandTimeout, cancellationToken);
+    }
+
+    /// <summary>Shares reconciliation and cleanup for accepted streams and helper-side deferred connections.</summary>
+    private static async Task<ProtectionControlCompletion> RunCoreAsync(Stream? stream, Func<CancellationToken, Task<Stream>>? connect,
+        ProtectionRuntime runtime, TimeSpan commandTimeout, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(runtime);
         ControlCommandDeadline.Validate(commandTimeout);
         var errors = new List<Exception>();
         try
         {
             using (var initial = ControlCommandDeadline.Start(commandTimeout, cancellationToken))
+            {
                 await runtime.RecheckAsync(initial.Token).ConfigureAwait(false);
+                if (connect is not null)
+                    stream = await connect(initial.Token).ConfigureAwait(false) ?? throw new InvalidDataException("Missing control stream.");
+            }
+            if (stream is null) throw new InvalidDataException("Missing control stream.");
             while (true)
             {
                 using var deadline = ControlCommandDeadline.Start(commandTimeout, cancellationToken);
@@ -36,7 +56,7 @@ public static class ProtectionControlServer
         catch (Exception error) { errors.Add(error); }
 
         // Retire the transport before potentially uninterruptible final policy and diagnostic cleanup.
-        try { await stream.DisposeAsync().ConfigureAwait(false); }
+        try { if (stream is not null) await stream.DisposeAsync().ConfigureAwait(false); }
         catch (Exception error) { errors.Add(error); }
         var final = await runtime.StopAsync(CancellationToken.None).ConfigureAwait(false);
         if (final.Error is not null) errors.Add(final.Error);

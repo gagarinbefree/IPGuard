@@ -16,6 +16,9 @@
     <PackageReference Include="Microsoft.NET.ILLink.Tasks" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Application/Application.csproj" />
+    <ProjectReference Include="../Infrastructure/Infrastructure.csproj" />
+    <ProjectReference Include="../Windows/Windows.csproj" />
     <AvaloniaResource Include="Assets/ipguard.ico" />
   </ItemGroup>
 </Project>

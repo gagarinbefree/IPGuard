@@ -11,6 +11,39 @@ namespace IntegrationTests;
 /// <summary>Combines real bound pipes, framing, runtime, and controller with a non-native block backend.</summary>
 public sealed class ProtectionControlSessionTests
 {
+    /// <summary>IPC startup failure still finishes blocking work and closes diagnostics before ownership release.</summary>
+    [Fact]
+    public async Task ConnectionFailureStillReconcilesAndReleasesOwner()
+    {
+        using var fixture = new Fixture();
+        var failure = new IOException("Controlled connection failure.");
+        var result = await ProtectionControlServer.ConnectAndRunAsync(_ =>
+        {
+            Assert.Equal(1, fixture.Writes);
+            Assert.Equal(0, fixture.OwnerReleases);
+            return Task.FromException<Stream>(failure);
+        }, fixture.CreateRuntime(), TimeSpan.FromSeconds(10), fixture.Token);
+        Assert.Same(failure, result.Error);
+        Assert.Equal(2, fixture.Writes);
+        Assert.Equal(1, fixture.OwnerReleases);
+    }
+
+    /// <summary>The connected host shares the normal command lifecycle with no second initialization write.</summary>
+    [Fact]
+    public async Task ConnectedHostUsesOneInitialReconcile()
+    {
+        using var fixture = new Fixture();
+        await using var pair = await Pair.CreateAsync(fixture.Token);
+        var serving = ProtectionControlServer.ConnectAndRunAsync(_ => Task.FromResult(pair.Helper), fixture.CreateRuntime(),
+            TimeSpan.FromSeconds(10), fixture.Token);
+        await using var client = new ProtectionControlClient(pair.Gui, TimeSpan.FromSeconds(10));
+        await client.SendAsync(ProtectionCommand.Status, fixture.Token);
+        Assert.Equal(1, fixture.Writes);
+        await client.SendAsync(ProtectionCommand.Stop, fixture.Token);
+        Assert.Null((await serving).Error);
+        Assert.Equal(2, fixture.Writes);
+    }
+
     /// <summary>Status is read-only, recheck ensures blocks, and stop acknowledges only completed final cleanup.</summary>
     [Fact]
     public async Task CommandsUseSharedRuntimeAndStopSafely()

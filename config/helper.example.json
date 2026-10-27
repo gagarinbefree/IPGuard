@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "powerShellPaths": [
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+  ],
+  "checkIntervalSeconds": 30
+}

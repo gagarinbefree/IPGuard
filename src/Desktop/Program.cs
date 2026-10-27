@@ -6,15 +6,18 @@ using Avalonia.Themes.Fluent;
 
 namespace IPGuard.Desktop;
 
-/// <summary>Starts the desktop application without a background service or firewall changes.</summary>
+/// <summary>Selects the ordinary desktop or the explicitly requested installed block-only helper.</summary>
 public static class Program
 {
-    /// <summary>Runs the window and tray using the Avalonia desktop lifetime.</summary>
+    /// <summary>Runs the window and tray without elevation, or routes explicit arguments to the separate helper entry.</summary>
     /// <param name="args">Command-line arguments passed to the process.</param>
     /// <returns>The application exit code.</returns>
     [STAThread]
-    public static int Main(string[] args) => BuildAvaloniaApp()
-        .StartWithClassicDesktopLifetime(args, ShutdownMode.OnExplicitShutdown);
+    public static int Main(string[] args)
+    {
+        if (args.Length != 0) return HelperEntryPoint.RunAsync(args).GetAwaiter().GetResult();
+        return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, ShutdownMode.OnExplicitShutdown);
+    }
 
     /// <summary>Configures Avalonia through composition without an Application subclass.</summary>
     /// <returns>A builder configured to use the native desktop platform.</returns>

@@ -45,7 +45,7 @@ public sealed class WindowsNetworkMonitor : INetworkSnapshotProvider, IDisposabl
     }
 
     /// <summary>Gets background-reader completion for safe shutdown verification.</summary>
-    internal Task Completion => worker;
+    public Task Completion => worker;
 
     /// <summary>Returns cached state atomically, without reading interfaces or contacting the network.</summary>
     public NetworkSnapshot? Capture()
