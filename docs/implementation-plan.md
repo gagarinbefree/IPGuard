@@ -4,6 +4,18 @@ IPGuard — приложение с треем и GUI на .NET 10, Avalonia, Av
 
 Решение называется `IPGuard`; проекты имеют короткие имена: `Domain`, `Application`, `Infrastructure`, `Windows`, `Desktop`, `Cli`, `UnitTests`, `IntegrationTests`. Проект создаётся при появлении нужного кода. Общие правила остаются в Domain/Application; зависимость от Avalonia и MVVM Toolkit ограничена Desktop.
 
+## Результат шага 8b.1: защищённый единственный владелец
+
+WindowsPolicyOwner координирует cooperating processes через фиксированный Global mutex с protected DACL и owner Administrators. Standard token не проходит public prerequisite; существующий unsafe descriptor отвергается без изменения. Захват, удержание и освобождение выполняются на одном dedicated thread; contention даёт null без ожидания, abandonment сохраняется как диагностика и требует новой сверки baseline. Отмена acquisition ждёт cleanup, но после handoff не становится скрытым lifetime token. Dispose отзывает Lost до native release; reentrant consumer callback не блокирует освобождение. Native/cleanup failures сохраняются, повторный Dispose не повторяет release.
+
+Application получает IPolicyOwnership и OwnedBlockPolicy: wrapper сериализует backend calls, проверяет live latch до/после каждого вызова и удерживает owner до завершения uninterruptible operation. Dispose запрещает new/queued calls и освобождает lease ровно один раз. Хост должен сначала дождаться BlockProtectionController.StopAsync, затем закрыть OwnedBlockPolicy и завершить diagnostics. Нет Permit, force cleanup или изменения существующей WFP-политики.
+
+TDD: 28 новых unit случаев упали на скомпилированных stubs и прошли после реализации. Четыре safe integration случая используют только unique test mutexes: cross-process contention, normal exit, process-death abandonment, unsafe ACL rejection без repair и protected creation либо точный native отказ текущему token. На локальном standard token подтверждён ERROR_INVALID_OWNER (1307), который MutexAcl возвращает как IOException; ожидание теста уточнено по фактическому Win32 contract. Elevated creation на локальной машине не запускался. Блокировка реального трафика этим не проверяется.
+
+Полный локальный прогон: 805 unit и 108 integration прошли; прежний IPv6 loopback получил WSAEACCES, один gated native WFP VM-тест пропущен. Locked restore и Release build прошли с 0 warnings/errors. Avalonia build telemetry отключена штатной process environment variable, поскольку sandbox не разрешает запись её log вне workspace. Solution-level formatter не смог подключиться к build-host pipe; whitespace verification изменённых файлов в folder mode прошла. Реальные Firewall/WFP, VPN, proxy и routes не менялись; production mutex не открывался.
+
+Следующий шаг 8b.2: privileged helper hosting без Windows Service, аутентифицированный IPC, запуск/выход и composition diagnostics/controller/owner. До подключения разрешений нужны enforced route model и isolated VM results. GUI по-прежнему shell без native policy backend; новый ownership не подключён к startup и prototype permit API. Hang handling, installer/recovery, PowerShell discovery, periodic policy inspection, GUI/CLI и полная VM-матрица остаются незавершёнными.
+
 ## Результат шага 8a: блокирующая координация и финальная сверка
 
 Добавлены IBlockPolicy, INetworkDiagnosticsReader, BlockProtectionController и immutable ProtectionSnapshot. Контроллер разделяет phase, last-observed baseline objects/time, geography и причину отсутствия разрешения. Reconcile сериализует ensure/readback, отзывает старый inspection и запрашивает свежую диагностику. Ошибки/отмена/malformed backend results не возвращают прошлую успешную проверку. US eligibility остаётся RouteUnverified, отрицательная geography — AddressRejected; permit/uninstall API у контроллера отсутствует.
@@ -16,7 +28,7 @@ TDD: 40 новых unit случаев сначала упали на скомп
 
 GUI по-прежнему не вызывает native policy backend, на рабочей машине WFP не перечислялся и не изменялся. Present — observation собственных объектов в завершённой транзакции, не доказанная блокировка пакетов, boot coverage или teardown существующих connections. Контроллер block-only; single owner across processes, privileged helper/IPC, зависание/авария, PowerShell discovery, периодическая сверка политики и UI hosting ещё не реализованы.
 
-Следующий шаг 8b: определить единственного владельца и привилегированный hosting без Windows Service, интегрировать lifetime диагностики/политики и запрос выхода. До выдачи Permit нужны enforced route model и isolated VM results; GUI/CLI должны показывать только фактически доступное состояние. Затем installer/recovery и полная VM-матрица.
+Единственный owner и проверка prerequisite реализованы в шаге 8b.1 выше; privileged hosting, lifetime диагностики/политики и запрос выхода остаются шагом 8b.2. До выдачи Permit нужны enforced route model и isolated VM results; GUI/CLI должны показывать только фактически доступное состояние. Затем installer/recovery и полная VM-матрица.
 
 ## Результат шага 7c.2: общий цикл local/public IP/GeoIP
 
@@ -30,7 +42,7 @@ TDD: 30 новых collector и 9 monitor случаев прошли compiled R
 
 Eligibility по US остаётся только EligibleForRouteValidation. Common exit, enforcement и судьба установленных соединений не подтверждены этим циклом. GUI пока не создаёт collectors/monitor, сетевых ограничений нет.
 
-Блокирующая координация реализована в шаге 8a выше; privileges, единственный owner и полный runtime lifecycle остаются шагом 8b. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем нужны GUI/CLI, installer/recovery и итоговая матрица VM.
+Блокирующая координация реализована в шаге 8a выше, single ownership — в шаге 8b.1; privileged hosting и полный runtime lifecycle остаются шагом 8b.2. Реальные Permit возможны только после подтверждения маршрута и VM-проверки. Затем нужны GUI/CLI, installer/recovery и итоговая матрица VM.
 
 ## Результат шага 7c.1: периодические локальные диагностики
 
