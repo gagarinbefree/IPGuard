@@ -208,9 +208,8 @@ public sealed class BlockProtectionController
     /// <summary>Rejects contradictory adapter reports instead of publishing a successful baseline inspection.</summary>
     private static void Validate(BlockPolicyInspection? result)
     {
-        if (result is null || !Enum.IsDefined(result.State) || result.ExpectedRules <= 0 || result.MatchingRules < 0
-            || result.MatchingRules > result.ExpectedRules || (result.State == BlockPolicyState.Unknown && result.MatchingRules != 0)
-            || (result.State == BlockPolicyState.Present && (result.MatchingRules != result.ExpectedRules || result.Error is not null)))
+        if (result is null || !BlockPolicyInspection.HasValidCounts(result.State, result.ExpectedRules, result.MatchingRules)
+            || (result.State == BlockPolicyState.Present && result.Error is not null))
             throw new InvalidDataException("The block policy returned an invalid inspection.");
     }
 }

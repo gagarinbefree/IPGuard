@@ -45,4 +45,10 @@ public sealed class BlockPolicyInspection
 
     /// <summary>Gets the original inspection failure, if any.</summary>
     public Exception? Error { get; }
+
+    /// <summary>Checks the shared object-state/count contract used by backend and transport reports.</summary>
+    internal static bool HasValidCounts(BlockPolicyState state, int expectedRules, int matchingRules)
+        => Enum.IsDefined(state) && expectedRules > 0 && matchingRules >= 0 && matchingRules <= expectedRules &&
+            (state != BlockPolicyState.Unknown || matchingRules == 0) &&
+            (state != BlockPolicyState.Present || matchingRules == expectedRules);
 }
